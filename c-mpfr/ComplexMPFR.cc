@@ -6,8 +6,8 @@
 
 Complex::Complex(){
     // mpc_init2(precision);
-    // mpc_set_d_d(value, 0, 0, MPC_RNDNN);
-    real = mpfr::mpreal(0);
+    // mpc_set_d_d(value, 1, 0, MPC_RNDNN);
+    real = mpfr::mpreal(1);
     imag = mpfr::mpreal(0);
 }
 Complex::Complex(double re){

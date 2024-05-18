@@ -129,9 +129,9 @@ static mpfr::mpreal Log10(const mpz_class& num) {
 static void PrintLog10(const mpz_class& num) {
   cout<<"c s log10-estimate "<<Log10(num)<<endl;
 }
-static void PrintLog10(const mpfr::mpreal& num) {
-  cout<<"c s log10-estimate "<<mpfr::log10(num)<<endl;
-}
+// static void PrintLog10(const mpfr::mpreal& num) {
+//   cout<<"c s log10-estimate "<<mpfr::log10(num)<<endl;
+// }
 static void PrintLog10(const Complex& num) {
   cout<<"c s log10-estimate "<<mpfr::log10(num.real)<<"+"<<mpfr::log10(num.imag)<<"i"<<endl;
 }
