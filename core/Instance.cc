@@ -1,4 +1,5 @@
 #include "../core/Instance.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 #include "mtl/Sort.h"
 
@@ -374,3 +375,4 @@ template <class T_data>
 
 template class GPMC::Instance<mpz_class>;
 template class GPMC::Instance<mpfr::mpreal>;
+template class GPMC::Instance<Complex>;

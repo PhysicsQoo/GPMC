@@ -3,6 +3,7 @@
 #include "core/Counter.h"
 #include "mtl/Sort.h"
 #include "utils/System.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1127,3 +1128,4 @@ inline unsigned int Counter<T_data>::computeLBDMC(const Clause &c) {
 
 template class GPMC::Counter<mpz_class>;
 template class GPMC::Counter<mpfr::mpreal>;
+template class GPMC::Counter<Complex>;

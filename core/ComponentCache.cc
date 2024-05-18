@@ -2,6 +2,7 @@
 #include <gmpxx.h>
 #include "mpfr/mpreal.h"
 #include "core/Component.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 // #define USE_SYSINFO
 
@@ -268,3 +269,5 @@ template class GPMC::PackedComponent<mpz_class>;
 template class GPMC::ComponentCache<mpz_class>;
 template class GPMC::PackedComponent<mpfr::mpreal>;
 template class GPMC::ComponentCache<mpfr::mpreal>;
+template class GPMC::PackedComponent<Complex>;
+template class GPMC::ComponentCache<Complex>;
