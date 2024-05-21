@@ -46,7 +46,7 @@ public:
     Complex& operator*=(const Complex& v);
 
     // //<< Fast Multiplication by 2^u
-    Complex& operator<<(const int u);
+    Complex operator<<(const int u);
     Complex operator<<(const int u) const;
 
     friend std::ostream& operator<<(std::ostream& os, Complex const & c);

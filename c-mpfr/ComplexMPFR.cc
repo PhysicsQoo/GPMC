@@ -108,11 +108,9 @@ Complex &Complex::operator*=(const Complex &v)
     return *this;
 }
 
-Complex &Complex::operator<<(const int u)
+Complex Complex::operator<<(const int u)
 {
-    this->real = real << u;
-    this->imag = imag << u;
-    return *this;
+    return Complex(real << u, imag << u);
 }
 
 Complex Complex::operator<<(const int u) const
