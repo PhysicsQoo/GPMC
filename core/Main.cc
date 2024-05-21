@@ -133,7 +133,8 @@ static void PrintLog10(const mpz_class& num) {
 //   cout<<"c s log10-estimate "<<mpfr::log10(num)<<endl;
 // }
 static void PrintLog10(const Complex& num) {
-  cout<<"c s log10-estimate "<<mpfr::log10(num.real)<<"+"<<mpfr::log10(num.imag)<<"i"<<endl;
+  cout<<"c s log10-estimate real: "<<mpfr::log10(num.real)<<endl;
+  cout<<"c s log10-estimate imag: "<<mpfr::log10(num.imag)<<endl;
 }
 static void printMode(Mode mode) {
 	switch(mode) {

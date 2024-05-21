@@ -103,8 +103,10 @@ Complex Complex::operator*(const Complex &v) const
 }
 Complex &Complex::operator*=(const Complex &v)
 {
-    this->real = real * v.real - imag * v.imag;
-    this->imag = real * v.imag + imag * v.real;
+    mpfr::mpreal re = real * v.real - imag * v.imag;
+    mpfr::mpreal im = real * v.imag + imag * v.real;
+    this->real = re;
+    this->imag = im;
     return *this;
 }
 
