@@ -57,10 +57,10 @@ template <>
 void Instance<Complex>::set_lit_weights(vector<string> tokens) {
 	if(weighted && tokens.size() == 7 && tokens.back() == "0") { //FIXME DEKEL 7 tokens
 		Lit l = SignedIntToLit(stoi(tokens[3]));
-		lit_weights[toInt(l)] = Complex(stoi(tokens[4]), stoi(tokens[5])); //FIXME DEKEL tokens 4,5 are the complex num
+		lit_weights[toInt(l)] = Complex(tokens[4], tokens[5]); //FIXME DEKEL tokens 4,5 are the complex num
 	} else if(weighted && tokens.size() == 6 && tokens.back() == "0") { 
 		Lit l = SignedIntToLit(stoi(tokens[3]));
-		lit_weights[toInt(l)] = Complex(stoi(tokens[4])); 
+		lit_weights[toInt(l)] = Complex(tokens[4]); 
 	}
 }
 
@@ -74,9 +74,9 @@ void Instance<T_data>::set_gweight(vector<string> tokens) {
 template <>
 void Instance<Complex>::set_gweight(vector<string> tokens) {
 	if(weighted && tokens.size() == 6 && tokens.back() == "0") {
-		gweight =Complex(stoi(tokens[3]), stoi(tokens[4]));//FIXME DEKEL tokens 4,5 are the complex num
+		gweight =Complex(tokens[3], tokens[4]);//FIXME DEKEL tokens 4,5 are the complex num
 	} else if(weighted && tokens.size() == 5 && tokens.back() == "0") {
-		gweight =Complex(stoi(tokens[3]));//FIXME DEKEL tokens 4,5 are the complex num
+		gweight =Complex(tokens[3]);//FIXME DEKEL tokens 4,5 are the complex num
 	}
 }
 
@@ -116,8 +116,9 @@ void Instance<T_data>::load(istream& in, bool weighted, bool projected, bool kee
 					npvars = vars;
 				}
 
-				if(weighted)
+				if(weighted){
 					lit_weights.resize(2*vars, 1);
+				}
 			}
 			else
 				cerr << "c c Header Error!" << endl;
