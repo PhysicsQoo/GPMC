@@ -122,8 +122,13 @@ Complex Complex::operator<<(const int u) const
 
 std::ostream &operator<<(std::ostream &os, Complex const &c)
 {
-    if (c.imag < 0)
+    if (c.imag < 0){
         return os << c.real << c.imag << "i" << std::endl;
-    else
+    }
+    else if (c.imag == 0){
+        return os << c.real <<"+" << 0 <<"i"<< std::endl;
+    }
+    else{
         return os << c.real <<"+" << c.imag <<"i" << std::endl;
+    }
 }
