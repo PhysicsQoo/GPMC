@@ -152,7 +152,7 @@ static void printResult(bool sat, Mode mode, const mpz_class& result) {
 		printf("c s log10-estimate -inf\n");
 	} else {
 		cout << "c s exact arb int " << result << endl;
-		cout.precision(15);
+		cout.precision(30);
 		PrintLog10(result);
 	}
 }
@@ -339,8 +339,11 @@ int main(int argc, char** argv)
 			Counter<mpz_class> S(config);
 			main_mc(S, filename);
 		} else {
-			if(config.cntr.precision > 15)
+			if(config.cntr.precision > 30) {
 				mpfr::mpreal::set_default_prec(mpfr::digits2bits(config.cntr.precision));
+			} else {
+				mpfr::mpreal::set_default_prec(mpfr::digits2bits(30));
+			}
 
 			Counter<Complex> S(config);
 			main_mc(S, filename);
