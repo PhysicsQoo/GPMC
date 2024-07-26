@@ -1,6 +1,5 @@
 
 #include "mpfr/mpreal.h"
-#include "mpc.h"
 #include "c-mpfr/ComplexMPFR.h"
 #include "ComplexMPFR.h"
 
