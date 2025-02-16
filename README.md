@@ -1,11 +1,15 @@
 # GPMC
 
+This is an extension of the original GPMC code, to support complex numbers. To do that a Complex NPFR class has been defined in the files c-mpfr/ComplexMPFR.cc and c-mpfr/ComplexMPFR.h. In addition, the core/Instance.cc and core/Instance.h files have been adjusted to support reading complex weights and to core/Main.cc to print the complex numbers and increase the precision. Lastly, small modifications have been made to include and instantiate templates with the Complex MPFR class. 
+
 GPMC is an exact model counter for CNF formulas. The current version of GPMC supports model counting, weighted model counting, projected model counting, and weighted projected model counting.
 
 The source codes of this software are based on those of MiniSat-based Sat solver [Glucose 3.0](https://www.labri.fr/perso/lsimon/glucose/) and [SharpSAT](https://github.com/marcthurley/sharpSAT) 12.08.1.
 And also, inspired by [sharpSAT-TD](https://github.com/Laakeri/sharpsat-td), the current version incorporates 
 a preprocessor for simplifying input formulas, and uses tree decomposition in decision heuristics. 
 In the implementation, we use a part of source files of the preprocessor in sharpSAT-TD, and use [FlowCutter](https://github.com/kit-algo/flow-cutter-pace17) for tree decomposition.
+
+
 
 ## Installation
 See `INSTALL.md`.
@@ -51,7 +55,7 @@ Example:
 ```
 p cnf 3 4
 c p show 2 3 0
-c p weight 2 0.6 0
+c p weight 2 -1 -3 0
 c p weight -2 0.4 0
 -1 2 0
 -2 3 0
@@ -59,8 +63,9 @@ c p weight -2 0.4 0
 1 -2 3 0
 ```
 The set of projection variables is { 2, 3 }.
-The weight of the positive literal of var 2 is 0.6, and that of the negative one is 0.4.
+The weight of the positive literal of var 2 is -1-3i, and that of the negative one is 0.4.
 
-## Author
+## Original Author
 [Kenji Hashimoto](https://www.trs.cm.is.nagoya-u.ac.jp/~k-hasimt/index-e.html),
 Nagoya University, Japan.
+
