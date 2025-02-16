@@ -1,6 +1,6 @@
 # GPMC
 
-This is an extension of the original GPMC code, to support complex numbers. To do that a Complex NPFR class has been defined in the files c-mpfr/ComplexMPFR.cc and c-mpfr/ComplexMPFR.h. In addition, the core/Instance.cc and core/Instance.h files have been adjusted to support reading complex weights and to core/Main.cc to print the complex numbers and increase the precision. Lastly, small modifications have been made to include and instantiate templates with the Complex MPFR class. 
+This is an extension of the original GPMC code, to support complex numbers. To do that a Complex MPFR class has been defined in the files c-mpfr/ComplexMPFR.cc and c-mpfr/ComplexMPFR.h. In addition, the core/Instance.cc and core/Instance.h files have been adjusted to support reading complex weights and to core/Main.cc to print the complex numbers and increase the precision. Lastly, small modifications have been made to include and instantiate templates with the Complex MPFR class. 
 
 GPMC is an exact model counter for CNF formulas. The current version of GPMC supports model counting, weighted model counting, projected model counting, and weighted projected model counting.
 
