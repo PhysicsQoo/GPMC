@@ -1,4 +1,5 @@
 #include "core/Component.h"
+#include "c-mpfr/ComplexMPFR.h"
 #include "mtl/Sort.h"
 #include <utility>
 
@@ -388,3 +389,4 @@ void ComponentManager<T_data>::removeChildComponentNodes()
 
 template class GPMC::ComponentManager<mpz_class>;
 template class GPMC::ComponentManager<mpfr::mpreal>;
+template class GPMC::ComponentManager<Complex>;

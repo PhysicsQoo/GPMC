@@ -1,4 +1,5 @@
 #include "../core/Instance.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 #include "mtl/Sort.h"
 
@@ -44,6 +45,42 @@ static void Tokens(string buf, vector<string>& ret) {
 }
 
 template <class T_data>
+void Instance<T_data>::set_lit_weights(vector<string> tokens) {
+	if(weighted && tokens.size() == 6 && tokens.back() == "0") {
+		int lit = stoi(tokens[3]);
+		Lit l = SignedIntToLit(lit);
+		lit_weights[toInt(l)] = tokens[4];
+	}
+}
+
+template <>
+void Instance<Complex>::set_lit_weights(vector<string> tokens) {
+	if(weighted && tokens.size() == 7 && tokens.back() == "0") { //FIXME DEKEL 7 tokens
+		Lit l = SignedIntToLit(stoi(tokens[3]));
+		lit_weights[toInt(l)] = Complex(tokens[4], tokens[5]); //FIXME DEKEL tokens 4,5 are the complex num
+	} else if(weighted && tokens.size() == 6 && tokens.back() == "0") { 
+		Lit l = SignedIntToLit(stoi(tokens[3]));
+		lit_weights[toInt(l)] = Complex(tokens[4]); 
+	}
+}
+
+template <class T_data>
+void Instance<T_data>::set_gweight(vector<string> tokens) {
+	if(weighted && tokens.size() == 5 && tokens.back() == "0") {
+		gweight = tokens[3];
+	}
+}
+
+template <>
+void Instance<Complex>::set_gweight(vector<string> tokens) {
+	if(weighted && tokens.size() == 6 && tokens.back() == "0") {
+		gweight =Complex(tokens[3], tokens[4]);//FIXME DEKEL tokens 4,5 are the complex num
+	} else if(weighted && tokens.size() == 5 && tokens.back() == "0") {
+		gweight =Complex(tokens[3]);//FIXME DEKEL tokens 4,5 are the complex num
+	}
+}
+
+template <class T_data>
 void Instance<T_data>::load(istream& in, bool weighted, bool projected, bool keepVarMap) {
 	this->weighted = weighted;
 	this->projected = projected;
@@ -79,8 +116,9 @@ void Instance<T_data>::load(istream& in, bool weighted, bool projected, bool kee
 					npvars = vars;
 				}
 
-				if(weighted)
+				if(weighted){
 					lit_weights.resize(2*vars, 1);
+				}
 			}
 			else
 				cerr << "c c Header Error!" << endl;
@@ -88,11 +126,7 @@ void Instance<T_data>::load(istream& in, bool weighted, bool projected, bool kee
 		else if (tokens[0][0] == 'c') {
 			if(tokens[0] == "c" && tokens[1] == "p") {
 				if(tokens[2] == "weight") {	// Read the weight of a literal
-					if(weighted && tokens.size() == 6 && tokens.back() == "0") {
-						int lit = stoi(tokens[3]);
-						Lit l = SignedIntToLit(lit);
-						lit_weights[toInt(l)] = tokens[4];
-					}
+					set_lit_weights(tokens);
 				}
 				else if(tokens[2] == "show") { // Read the list of projected vars
 					if(projected && tokens.back() == "0") {
@@ -108,9 +142,7 @@ void Instance<T_data>::load(istream& in, bool weighted, bool projected, bool kee
 					}
 				}
 				else if(tokens[2] == "gweight") {
-					if(weighted && tokens.size() == 5 && tokens.back() == "0") {
-						gweight = tokens[3];
-					}
+					set_gweight(tokens);
 				}
 			}
 			else if(tokens[0] == "cr") {
@@ -374,3 +406,4 @@ template <class T_data>
 
 template class GPMC::Instance<mpz_class>;
 template class GPMC::Instance<mpfr::mpreal>;
+template class GPMC::Instance<Complex>;

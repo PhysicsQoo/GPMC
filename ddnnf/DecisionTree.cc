@@ -1,4 +1,5 @@
 #include "DecisionTree.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 DTNode topnode(DT_TOP);
 DTNode bottomnode(DT_BOT);
@@ -253,6 +254,7 @@ T_data DTNodeManager::countModel(Glucose::vec<T_data>& lit_weight, bool wc)
 }
 template mpz_class DTNodeManager::countModel(Glucose::vec<mpz_class>& lit_weight, bool wc);
 template mpfr::mpreal DTNodeManager::countModel(Glucose::vec<mpfr::mpreal>& lit_weight, bool wc);
+template Complex DTNodeManager::countModel(Glucose::vec<Complex>& lit_weight, bool wc);
 
 void DTNodeManager::printNode(NodeIndex node, ostream& out) const
 {

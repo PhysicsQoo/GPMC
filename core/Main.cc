@@ -77,6 +77,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "core/Config.h"
 #include "preprocessor/Preprocessor.h"
 #include "core/Counter.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 
 using namespace Glucose;
@@ -124,11 +125,16 @@ static mpfr::mpreal Log10(const mpz_class& num) {
   mpfr::mpreal num1(num.get_mpz_t());
   return mpfr::log10(num1);
 }
+
 static void PrintLog10(const mpz_class& num) {
   cout<<"c s log10-estimate "<<Log10(num)<<endl;
 }
-static void PrintLog10(const mpfr::mpreal& num) {
-  cout<<"c s log10-estimate "<<mpfr::log10(num)<<endl;
+// static void PrintLog10(const mpfr::mpreal& num) {
+//   cout<<"c s log10-estimate "<<mpfr::log10(num)<<endl;
+// }
+static void PrintLog10(const Complex& num) {
+  cout<<"c s log10-estimate real: "<<mpfr::log10(num.real)<<endl;
+  cout<<"c s log10-estimate imag: "<<mpfr::log10(num.imag)<<endl;
 }
 static void printMode(Mode mode) {
 	switch(mode) {
@@ -146,11 +152,30 @@ static void printResult(bool sat, Mode mode, const mpz_class& result) {
 		printf("c s log10-estimate -inf\n");
 	} else {
 		cout << "c s exact arb int " << result << endl;
-		cout.precision(15);
+		cout.precision(30);
 		PrintLog10(result);
 	}
 }
-static void printResult(bool sat, Mode mode, const mpfr::mpreal& result) {
+// static void printResult(bool sat, Mode mode, const mpfr::mpreal& result) {
+// 	printf("s %s\n", sat ? "SATISFIABLE" : "UNSATISFIABLE");
+// 	printMode(mode);
+// 	if(!sat) {
+// 		printf("c s exact double prec-sci 0\n");
+// 		printf("c s log10-estimate -inf\n");
+// 	} else {
+// 		int precision = mpfr::bits2digits(mpfr::mpreal::get_default_prec());
+// 		cout.precision(precision);
+// 		if(precision > 15) {
+// 			cout << "c o precision " << precision << endl;
+// 			cout << "c s exact double prec-sci " <<  result << endl;
+// 		} else {
+// 			cout << "c s exact double prec-sci " <<  result << endl;
+// 		}
+// 		cout.precision(15);
+// 		PrintLog10(result);
+// 	}
+// }
+static void printResult(bool sat, Mode mode, const Complex& result) {
 	printf("s %s\n", sat ? "SATISFIABLE" : "UNSATISFIABLE");
 	printMode(mode);
 	if(!sat) {
@@ -314,10 +339,13 @@ int main(int argc, char** argv)
 			Counter<mpz_class> S(config);
 			main_mc(S, filename);
 		} else {
-			if(config.cntr.precision > 15)
+			if(config.cntr.precision > 30) {
 				mpfr::mpreal::set_default_prec(mpfr::digits2bits(config.cntr.precision));
+			} else {
+				mpfr::mpreal::set_default_prec(mpfr::digits2bits(30));
+			}
 
-			Counter<mpfr::mpreal> S(config);
+			Counter<Complex> S(config);
 			main_mc(S, filename);
 		}
 

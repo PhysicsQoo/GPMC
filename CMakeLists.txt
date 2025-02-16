@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.0)
 project(gpmc CXX)
 option(GPMC_STATIC_BUILD "build gpmc as a static execution file" off)
 
-link_directories(/usr/local/lib)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src /usr/local/include)
+link_directories(../.venv/lib)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src ../.venv/include ../downloads/gmp-6.3.0/)
 add_compile_options("$<$<CONFIG:Debug>:-O0>")
 add_compile_options(-Wall -Wno-parentheses -Wno-format -Wno-sign-compare -Wno-unused-variable -Wno-unused-result)
 add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-literal-suffix;-Wno-class-memaccess>")
@@ -16,6 +16,7 @@ add_library(gpmc STATIC
 	core/ComponentCache.cc core/ComponentManager.cc core/Counter.cc
 	core/Config.cc core/Instance.cc ddnnf/DecisionTree.cc
 	core/Solver.cc 
+	c-mpfr/ComplexMPFR.cc 
 	utils/Options.cc utils/System.cc
 	preprocessor/Preprocessor.cc preprocessor/TestSolver.cc 
 	preprocessor/lib_sharpsat_td/subsumer.cpp

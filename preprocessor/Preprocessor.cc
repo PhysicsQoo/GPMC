@@ -2,6 +2,7 @@
 #include "core/SolverTypes.h"
 #include "lib_sharpsat_td/subsumer.hpp"
 #include "TestSolver.h"
+#include "c-mpfr/ComplexMPFR.h"
 
 #include <unordered_map>
 
@@ -859,4 +860,5 @@ void Preprocessor<T_data>::Subsume()
 
 template class PPMC::Preprocessor<mpz_class>;
 template class PPMC::Preprocessor<mpfr::mpreal>;
+template class PPMC::Preprocessor<Complex>;
 

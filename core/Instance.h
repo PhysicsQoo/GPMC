@@ -17,6 +17,8 @@ class Instance {
 public:
 	Instance();
 
+	void set_gweight(std::vector<std::string> tokens);
+	void set_lit_weights(std::vector<std::string> tokens);
 	void load			(std::istream& in, bool weighted, bool projected, bool ddnnf);
 	bool addClause	(std::vector<Glucose::Lit>& lits, bool learnt=false);
 
