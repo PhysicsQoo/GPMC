@@ -18,9 +18,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # [Workaround] Force include and link directories for local Conda environments
 # ==============================================================================
 if(DEFINED ENV{CONDA_PREFIX})
-	message(STATUS "WORKAROUND: Forcing include and link directories to $ENV{CONDA_PREFIX}")
-	include_directories($ENV{CONDA_PREFIX}/include)
-	link_directories($ENV{CONDA_PREFIX}/lib)
+    message(STATUS "WORKAROUND: Forcing include and link directories to $ENV{CONDA_PREFIX}")
+    include_directories($ENV{CONDA_PREFIX}/include)
+    link_directories($ENV{CONDA_PREFIX}/lib)
 endif()
 
 # ==============================================================================
@@ -45,19 +45,19 @@ add_subdirectory(flow-cutter-pace17)
 # Build the core gpmc library (STATIC)
 # ==============================================================================
 add_library(gpmc STATIC
-	core/ComponentCache.cc core/ComponentManager.cc core/Counter.cc
-	core/Config.cc core/Instance.cc ddnnf/DecisionTree.cc
-	core/Solver.cc c-mpfr/ComplexMPFR.cc utils/Options.cc
-	utils/System.cc preprocessor/Preprocessor.cc preprocessor/TestSolver.cc
-	preprocessor/lib_sharpsat_td/subsumer.cpp
-	preprocessor/TreeDecomposition.cc preprocessor/IFlowCutter.cc
+    core/ComponentCache.cc core/ComponentManager.cc core/Counter.cc
+    core/Config.cc core/Instance.cc ddnnf/DecisionTree.cc
+    core/Solver.cc c-mpfr/ComplexMPFR.cc utils/Options.cc
+    utils/System.cc preprocessor/Preprocessor.cc preprocessor/TestSolver.cc
+    preprocessor/lib_sharpsat_td/subsumer.cpp
+    preprocessor/TreeDecomposition.cc preprocessor/IFlowCutter.cc
 )
 
 # ==============================================================================
 # Set include directories and compile definitions/options for gpmc library
 # ==============================================================================
 target_include_directories(gpmc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src)
-target_compile_definitions(gpmc PUBLIC __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
+target_compile_definitions(gpmc PUBLIC __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS $<$<CONFIG:Debug>:DEBUG>)
 target_compile_options(gpmc PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS} $<$<CXX_COMPILER_ID:GNU>:${GPMC_GNU_FLAGS}> $<$<CXX_COMPILER_ID:Clang>:${GPMC_CLANG_FLAGS}> $<$<CXX_COMPILER_ID:AppleClang>:${GPMC_APPLECLANG_FLAGS};${GPMC_CLANG_FLAGS}>)
 
 # ==============================================================================
@@ -66,21 +66,26 @@ target_compile_options(gpmc PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS}
 add_executable(gpmc-bin core/Main.cc)
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
 
+
+target_compile_definitions(gpmc-bin PRIVATE __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
+
+
 # ==============================================================================
 # Link all required libraries
 # ==============================================================================
+
 target_link_libraries(gpmc-bin PRIVATE
-	gpmc
-	flowcutter
-	gmp
-	gmpxx
-	mpfr
-	z
+    gpmc
+    flowcutter
+    gmp
+    gmpxx
+    mpfr
+    z
 )
 
 # ==============================================================================
 # Handle static linking option
 # ==============================================================================
 if(GPMC_STATIC_BUILD)
-	set_property(TARGET gpmc-bin APPEND PROPERTY LINK_FLAGS "-static")
+    set_property(TARGET gpmc-bin APPEND PROPERTY LINK_FLAGS "-static")
 endif()
