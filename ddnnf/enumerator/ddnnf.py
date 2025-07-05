@@ -1,43 +1,50 @@
 from enum import Enum
 
+
 class NodeType(Enum):
-    '''
-        The type of nodes in d-DNNF
-    '''
-    LIT = 0     # literal
-    OR  = 1     # or
-    AND = 2     # and
-    BOT = 3     # bottom
-    TOP = 4     # bottom
+    """
+    The type of nodes in d-DNNF
+    """
+
+    LIT = 0  # literal
+    OR = 1  # or
+    AND = 2  # and
+    BOT = 3  # bottom
+    TOP = 4  # bottom
+
 
 class Branch(Enum):
-    LEFT  = 0
+    LEFT = 0
     RIGHT = 1
 
+
 class Node(object):
-    '''
-        d-DNNF node class
-    '''
-    def __init__(self, type, lit = None, children = None):
-        '''
-            arguments
-                type : node type
-                lit  : literal for Lit node)
-                children : child nodes for OR/AND node)
-        '''
+    """
+    d-DNNF node class
+    """
+
+    def __init__(self, type, lit=None, children=None):
+        """
+        arguments
+            type : node type
+            lit  : literal for Lit node)
+            children : child nodes for OR/AND node)
+        """
         self.type = type
         if type == NodeType.LIT:
             self.lit = lit
         else:
             self.children = children
 
-        self.choice = None      # The current choice (0: left, 1:right): node state for enumeration
-        self.count  = None      # To cache the number of solutions for the sub nnf rooted by the current
+        self.choice = (
+            None  # The current choice (0: left, 1:right): node state for enumeration
+        )
+        self.count = None  # To cache the number of solutions for the sub nnf rooted by the current
 
     def reset(self, reset_count=True):
         self.choice = None
         if reset_count:
-            self.count  = None
+            self.count = None
 
     def countModels(self):
         if self.count != None:
@@ -56,61 +63,67 @@ class Node(object):
 
         return self.count
 
+
 class NNF(object):
-    '''
-        NNF class
-    '''
+    """
+    NNF class
+    """
+
     def __init__(self):
-        self.root           = None
-        self.nodepool       = []
-        self.fixedLits      = []
-        self.freeVarGroups  = []
-        self.deletedVars    = []
-        self.map            = {}
+        self.root = None
+        self.nodepool = []
+        self.fixedLits = []
+        self.freeVarGroups = []
+        self.deletedVars = []
+        self.map = {}
 
-        self.nvars          = 0
-        isCanonicalized     = False
+        self.nvars = 0
+        isCanonicalized = False
 
-    def addNode(self, type, child_idxes = None, lit = None):
+    def addNode(self, type, child_idxes=None, lit=None):
         if child_idxes != None:
             cnodes = []
             for child_idx in child_idxes:
                 cnodes.append(self.nodepool[child_idx])
-            self.nodepool.append(Node(type, children = cnodes))
+            self.nodepool.append(Node(type, children=cnodes))
         else:
-            self.nodepool.append(Node(type, lit = lit))
+            self.nodepool.append(Node(type, lit=lit))
 
     def parse(self, filename):
         self.nodepool = []
         with open(filename) as f:
             for line in f:
                 line_block = line.split()
-                head_symb  = line_block[0]
+                head_symb = line_block[0]
 
-                if head_symb == 'v':
+                if head_symb == "v":
                     simplit = int(line_block[2])
                     simpvar = abs(simplit)
 
                     origvar = int(line_block[1])
-                    origlit = origvar if simplit > 0 else -1*origvar
+                    origlit = origvar if simplit > 0 else -1 * origvar
 
                     if simpvar in self.map:
                         self.map.get(simpvar).append(origlit)
                     else:
                         self.map[simpvar] = [origlit]
-                elif head_symb == 'O':
-                    self.addNode(NodeType.OR,  child_idxes = list(map(int,line_block[3:])))
-                elif head_symb == 'A':
-                    self.addNode(NodeType.AND, child_idxes = list(map(int,line_block[2:])))
-                elif head_symb == 'L':
-                    self.addNode(NodeType.LIT, lit = int(line_block[1]))
-                elif head_symb == 'a':
+                elif head_symb == "O":
+                    self.addNode(
+                        NodeType.OR, child_idxes=list(map(int, line_block[3:]))
+                    )
+                elif head_symb == "A":
+                    self.addNode(
+                        NodeType.AND, child_idxes=list(map(int, line_block[2:]))
+                    )
+                elif head_symb == "L":
+                    self.addNode(NodeType.LIT, lit=int(line_block[1]))
+                elif head_symb == "a":
                     self.fixedLits = list(map(int, line_block[1:-1]))
-                elif head_symb == 'd':
+                elif head_symb == "d":
                     self.deletedVars = list(map(int, line_block[1:-1]))
-                elif head_symb == 'f':
+                elif head_symb == "f":
                     self.freeVarGroups.append(list(map(int, line_block[1:-1])))
-                elif head_symb == 'p':
+                elif head_symb == "p":
                     self.nvars = int(line_block[2])
 
         if len(self.nodepool) > 0:
@@ -130,7 +143,12 @@ class NNF(object):
                 if child.type == NodeType.LIT:
                     corr_nodes = []
                     sign = 1 if child.lit > 0 else -1
-                    newchildren.extend([self.nodepool[(sign*i)+self.nvars] for i in self.map[abs(child.lit)]])
+                    newchildren.extend(
+                        [
+                            self.nodepool[(sign * i) + self.nvars]
+                            for i in self.map[abs(child.lit)]
+                        ]
+                    )
                 else:
                     self.__replace(child)
                     newchildren.append(child)
@@ -139,21 +157,31 @@ class NNF(object):
 
     def canonicalize(self):
         nodepool_bak = self.nodepool
-        self.nodepool = [Node(NodeType.LIT, lit = i) for i in range(-self.nvars, self.nvars+1)]
-        self.nodepool.extend([node for node in nodepool_bak if node.type != NodeType.LIT])
+        self.nodepool = [
+            Node(NodeType.LIT, lit=i) for i in range(-self.nvars, self.nvars + 1)
+        ]
+        self.nodepool.extend(
+            [node for node in nodepool_bak if node.type != NodeType.LIT]
+        )
         nodepool_bak.clear()
         self.__replace(self.root)
 
         if len(self.fixedLits) > 0 or len(self.freeVarGroups) > 0:
             topchildren = [self.root]
-            topchildren.extend([self.nodepool[i+self.nvars] for i in self.fixedLits])
+            topchildren.extend([self.nodepool[i + self.nvars] for i in self.fixedLits])
             for group in self.freeVarGroups:
                 if len(group) == 1:
-                    node1 = self.nodepool[group[0]+self.nvars]
-                    node2 = self.nodepool[-group[0]+self.nvars]
+                    node1 = self.nodepool[group[0] + self.nvars]
+                    node2 = self.nodepool[-group[0] + self.nvars]
                 else:
-                    node1 = Node(NodeType.AND, children = [self.nodepool[i+self.nvars] for i in group])
-                    node2 = Node(NodeType.AND, children = [self.nodepool[-i+self.nvars] for i in group])
+                    node1 = Node(
+                        NodeType.AND,
+                        children=[self.nodepool[i + self.nvars] for i in group],
+                    )
+                    node2 = Node(
+                        NodeType.AND,
+                        children=[self.nodepool[-i + self.nvars] for i in group],
+                    )
                     self.nodepool.append(node1)
                     self.nodepool.append(node2)
 
@@ -162,16 +190,17 @@ class NNF(object):
             self.root = Node(NodeType.AND, children=topchildren)
             self.nodepool.append(self.root)
 
-        self.fixedLits      = []
-        self.freeVarGroups  = []
-        self.map            = {}
-        isCanonicalized     = True
+        self.fixedLits = []
+        self.freeVarGroups = []
+        self.map = {}
+        isCanonicalized = True
         self.reset()
 
+
 class Enumerator(object):
-    '''
-        Enumerator for d-DNNF
-    '''
+    """
+    Enumerator for d-DNNF
+    """
 
     def __init__(self, nnf, reset=False):
         self.nnf = nnf
@@ -182,7 +211,7 @@ class Enumerator(object):
 
         self.solution = list(range(1, self.nnf.nvars + 1))
         for v in self.nnf.deletedVars:
-            self.solution[v-1] = None
+            self.solution[v - 1] = None
         self.nmodels = None
 
         if reset:
@@ -252,11 +281,13 @@ class Enumerator(object):
 
     def get(self, number):
         if self.nnf.root.count == None:
-            print('Perform model counting before you use this function.')
+            print("Perform model counting before you use this function.")
             return False
 
         if self.nnf.root.count <= number or number < 0:
-            print(f'The number of models is {self.nnf.root.count}. Please specify a number less than it.')
+            print(
+                f"The number of models is {self.nnf.root.count}. Please specify a number less than it."
+            )
             return False
 
         self.branches = []

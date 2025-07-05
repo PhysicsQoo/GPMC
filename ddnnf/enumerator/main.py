@@ -1,8 +1,9 @@
 import sys
 import time
+
 import ddnnf
 
-help_msg ='''
+help_msg = """
 Commands: 
 
 > mc
@@ -28,25 +29,26 @@ quit this command line.
 > help
 display this help message.
 
-'''
+"""
 
 filename = sys.argv[1]
 
 nnf = ddnnf.NNF()
 
 start = time.time()
-print('Parsing input file...')
+print("Parsing input file...")
 nnf.parse(filename)
 end = time.time()
-print(f'Done. (time: {end-start:.2f} s)')
+print(f"Done. (time: {end-start:.2f} s)")
 
 start = time.time()
-print('Restoring d-DNNF for original CNF ...')
+print("Restoring d-DNNF for original CNF ...")
 nnf.canonicalize()
 end = time.time()
-print(f'Done. (time: {end-start:.2f} s )')
+print(f"Done. (time: {end-start:.2f} s )")
 if len(nnf.deletedVars) > 0:
-    print('''
+    print(
+        """
     Warning: 
     Because some vars are deleted by preprocessing in GPMC, the d-DNNF does not contain assignments for the deleted vars.
     This tool can only enumerate partial models for projection vars excluding the deleted vars.
@@ -54,17 +56,18 @@ if len(nnf.deletedVars) > 0:
     This tool does not provide a function for complementing the assignment for the deleted vars.
     If necessary, please use an external tool together, e.g., by running a SAT solver with the original CNF assuming 
     a partial model provided from this enumerator, you can find a complete model for the original CNF.
-    ''')
-    print(f'Deleted Vars: {nnf.deletedVars}')
+    """
+    )
+    print(f"Deleted Vars: {nnf.deletedVars}")
 
 print('Please type a command (see help by command "help")')
 enumerator = ddnnf.Enumerator(nnf)
 
 while True:
     try:
-        user_input = input('> ')
+        user_input = input("> ")
     except (KeyboardInterrupt, EOFError):
-        print('\nExit.')
+        print("\nExit.")
         break
     else:
         if len(user_input) == 0:
@@ -76,7 +79,7 @@ while True:
             start = time.time()
             print(enumerator.countModel())
             end = time.time()
-            print(f'Done. (time: {end - start:.2f} s )')
+            print(f"Done. (time: {end - start:.2f} s )")
         elif command_parts[0] == "next":
             if len(command_parts) > 1:
                 num = int(command_parts[1])
@@ -85,15 +88,19 @@ while True:
 
             for i in range(num):
                 if enumerator.next():
-                    print(f'v {" ".join([str(i) for i in enumerator.solution if i != None])} 0')
+                    print(
+                        f'v {" ".join([str(i) for i in enumerator.solution if i != None])} 0'
+                    )
                 else:
-                    print('No more model')
+                    print("No more model")
                     break
 
         elif command_parts[0] == "get":
             if len(command_parts) == 2:
                 if enumerator.get(int(command_parts[1])):
-                    print(f'v {" ".join([str(i) for i in enumerator.solution if i != None])} 0')
+                    print(
+                        f'v {" ".join([str(i) for i in enumerator.solution if i != None])} 0'
+                    )
             else:
                 print("Invalid syntax. Usage: get <natural number>")
         elif command_parts[0] == "quit":
