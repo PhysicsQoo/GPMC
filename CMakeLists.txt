@@ -57,7 +57,7 @@ add_library(gpmc STATIC
 # Set include directories and compile definitions/options for gpmc library
 # ==============================================================================
 target_include_directories(gpmc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src)
-target_compile_definitions(gpmc PRIVATE $<$<CONFIG:Debug>:DEBUG> __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
+target_compile_definitions(gpmc PUBLIC __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 target_compile_options(gpmc PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS} $<$<CXX_COMPILER_ID:GNU>:${GPMC_GNU_FLAGS}> $<$<CXX_COMPILER_ID:Clang>:${GPMC_CLANG_FLAGS}> $<$<CXX_COMPILER_ID:AppleClang>:${GPMC_APPLECLANG_FLAGS};${GPMC_CLANG_FLAGS}>)
 
 # ==============================================================================
