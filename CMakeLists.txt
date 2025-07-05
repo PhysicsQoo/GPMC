@@ -11,6 +11,7 @@ project(gpmc LANGUAGES CXX)
 # ==============================================================================
 # Global C++ standard settings (Best Practice)
 # ==============================================================================
+add_compile_definitions(__STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -57,7 +58,6 @@ add_library(gpmc STATIC
 # Set include directories and compile definitions/options for gpmc library
 # ==============================================================================
 target_include_directories(gpmc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src)
-target_compile_definitions(gpmc PUBLIC __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS $<$<CONFIG:Debug>:DEBUG>)
 target_compile_options(gpmc PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS} $<$<CXX_COMPILER_ID:GNU>:${GPMC_GNU_FLAGS}> $<$<CXX_COMPILER_ID:Clang>:${GPMC_CLANG_FLAGS}> $<$<CXX_COMPILER_ID:AppleClang>:${GPMC_APPLECLANG_FLAGS};${GPMC_CLANG_FLAGS}>)
 
 # ==============================================================================
@@ -66,11 +66,7 @@ target_compile_options(gpmc PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS}
 add_executable(gpmc-bin core/Main.cc)
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
 
-
-target_compile_definitions(gpmc-bin PRIVATE __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
-
-
-# ==============================================================================
+# # ==============================================================================
 # Link all required libraries
 # ==============================================================================
 
