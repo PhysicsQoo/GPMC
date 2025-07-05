@@ -12,6 +12,7 @@ project(gpmc LANGUAGES CXX)
 # Global C++ standard settings (Best Practice)
 # ==============================================================================
 add_compile_definitions(__STDC_FORMAT_MACROS __STDC_LIMIT_MACROS)
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -65,8 +66,9 @@ target_compile_options(gpmc PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS}
 # ==============================================================================
 add_executable(gpmc-bin core/Main.cc)
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
+target_compile_options(gpmc-bin PRIVATE $<$<CONFIG:Debug>:-O0> ${GPMC_COMPILE_FLAGS} $<$<CXX_COMPILER_ID:GNU>:${GPMC_GNU_FLAGS}> $<$<CXX_COMPILER_ID:Clang>:${GPMC_CLANG_FLAGS}> $<$<CXX_COMPILER_ID:AppleClang>:${GPMC_APPLECLANG_FLAGS};${GPMC_CLANG_FLAGS}>)
 
-# # ==============================================================================
+# ==============================================================================
 # Link all required libraries
 # ==============================================================================
 
