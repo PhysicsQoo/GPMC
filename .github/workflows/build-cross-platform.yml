@@ -23,12 +23,17 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Setup vcpkg and dependencies (Windows only)
+    - name: Restore vcpkg cache (Windows only)
       if: runner.os == 'Windows'
-      uses: lukka/run-vcpkg@v11
+      uses: actions/cache@v4
       with:
-        vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-        runVcpkgInstall: true
+        path: |
+          vcpkg
+          vcpkg_installed
+          ~/.cache/vcpkg
+        key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-
 
     - name: Install GMP & MPFR
       shell: bash
@@ -45,13 +50,13 @@ jobs:
           echo "EXTRA_CXX_FLAGS=-I$BREW_PREFIX/include" >> $GITHUB_ENV
           echo "EXTRA_LINK_FLAGS=-L$BREW_PREFIX/lib" >> $GITHUB_ENV
 
-        # else  # Windows
-        #   if [ ! -d "vcpkg" ]; then
-        #     git clone https://github.com/microsoft/vcpkg.git --depth 1
-        #   fi
-        #   ./vcpkg/bootstrap-vcpkg.bat
-        #   ./vcpkg/vcpkg install gmp mpfr --triplet x64-windows-static
-        #   echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
+        else  # Windows
+          if [ ! -d "vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git --depth 1
+          fi
+          ./vcpkg/bootstrap-vcpkg.bat
+          ./vcpkg/vcpkg install gmp mpfr --triplet x64-windows-static
+          echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
         fi
 
     - name: Configure CMake
