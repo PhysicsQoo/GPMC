@@ -17,25 +17,30 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
+    env:
+      VCPKG_BINARY_SOURCES: 'clear;x-gha,readwrite'
+
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
       with:
         submodules: recursive
 
-    - name: Restore vcpkg cache (if exists)
-      uses: actions/cache@v4
+    - name: Setup MSBuild
+      if: runner.os == 'Windows'
+      uses: microsoft/setup-msbuild@v2
       with:
-        path: |
-          vcpkg
-          vcpkg_installed
-          ~/.cache/vcpkg
-        key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/vcpkg.json') }}
-        restore-keys: |
-          ${{ runner.os }}-vcpkg-
+        msbuild-architecture: x64
 
+    - name: Export GitHub Actions cache environment variables for vcpkg
+      if: runner.os == 'Windows'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-    - name: Install GMP & MPFR
+    - name: Install Dependencies
       shell: bash
       run: |
         if [ "${{ runner.os }}" = "Linux" ]; then
@@ -43,23 +48,18 @@ jobs:
           sudo apt-get install -y libgmp-dev libmpfr-dev
           echo "EXTRA_CXX_FLAGS=-I/usr/include" >> $GITHUB_ENV
           echo "EXTRA_LINK_FLAGS=-L/usr/lib" >> $GITHUB_ENV
-
         elif [ "${{ runner.os }}" = "macOS" ]; then
           brew install gmp mpfr
           BREW_PREFIX=$(brew --prefix)
           echo "EXTRA_CXX_FLAGS=-I$BREW_PREFIX/include" >> $GITHUB_ENV
           echo "EXTRA_LINK_FLAGS=-L$BREW_PREFIX/lib" >> $GITHUB_ENV
-
-        else  # Windows
-          if [ ! -d "vcpkg" ]; then
-            git clone https://github.com/microsoft/vcpkg.git --depth 1
-          fi
+        elif [ "${{ runner.os }}" = "Windows" ]; then
           ./vcpkg/bootstrap-vcpkg.bat
-          ./vcpkg/vcpkg install gmp mpfr --triplet x64-windows-static
           echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
         fi
 
-    - name: Configure CMake
+    - name: Configure CMake for Unix
+      if: runner.os != 'Windows'
       shell: bash
       run: |
         cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
@@ -67,15 +67,26 @@ jobs:
           -DCMAKE_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
           -DCMAKE_EXE_LINKER_FLAGS="${EXTRA_LINK_FLAGS}"
 
-    - name: Build
+    - name: Configure CMake for Windows (to generate MSBuild solution)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="$CMAKE_TOOLCHAIN_FILE"
+
+    - name: Build with CMake on Unix
+      if: runner.os != 'Windows'
       run: cmake --build build --config Release --parallel
+
+    - name: Build with MSBuild on Windows
+      if: runner.os == 'Windows'
+      run: msbuild build/GPMC.sln /p:Configuration=Release /p:Platform=x64
 
     - name: Set binary path by OS
       id: bin
       shell: bash
       run: |
         if [ "${{ runner.os }}" = "Windows" ]; then
-          echo "path=build\\Release\\GPMC.exe" >> "$GITHUB_OUTPUT"
+          echo "path=build/Release/GPMC.exe" >> "$GITHUB_OUTPUT"
         else
           if [ "$(uname)" = "Darwin" ]; then
             echo "path=build/GPMC" >> "$GITHUB_OUTPUT"
