@@ -15,13 +15,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
     - name: Checkout source
       uses: actions/checkout@v4
       with:
         submodules: recursive
+
+    - name: Restore vcpkg cache (Windows only)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: |
+          vcpkg_installed
+          ~/.cache/vcpkg
+        key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-
 
     - name: Install GMP & MPFR
       shell: bash
@@ -38,9 +49,11 @@ jobs:
           echo "EXTRA_CXX_FLAGS=-I$BREW_PREFIX/include" >> $GITHUB_ENV
           echo "EXTRA_LINK_FLAGS=-L$BREW_PREFIX/lib" >> $GITHUB_ENV
 
-        else  # windows-latest
-          git clone https://github.com/microsoft/vcpkg.git --depth 1
-          ./vcpkg/bootstrap-vcpkg.sh
+        else  # Windows
+          if [ ! -d "vcpkg" ]; then
+            git clone https://github.com/microsoft/vcpkg.git --depth 1
+          fi
+          ./vcpkg/bootstrap-vcpkg.bat
           ./vcpkg/vcpkg install gmp mpfr --triplet x64-windows-static
           echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
         fi
@@ -63,8 +76,8 @@ jobs:
         if [ "${{ runner.os }}" = "Windows" ]; then
           echo "path=build\\Release\\GPMC.exe" >> "$GITHUB_OUTPUT"
         else
-          EXECUTABLE=$(find build -maxdepth 1 -type f -perm +111 -exec basename {} \; | head -n1)
-          echo "path=build/$EXECUTABLE" >> "$GITHUB_OUTPUT"
+          EXEC=$(find build -maxdepth 1 -type f -perm /111 -iname 'gpmc*' -exec basename {} \; | head -n1)
+          echo "path=build/$EXEC" >> "$GITHUB_OUTPUT"
         fi
 
     - name: Upload binary artifact
