@@ -23,17 +23,17 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Restore vcpkg cache (Windows only)
-      if: runner.os == 'Windows'
+    - name: Restore vcpkg cache (if exists)
       uses: actions/cache@v4
       with:
         path: |
           vcpkg
           vcpkg_installed
           ~/.cache/vcpkg
-        key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}
+        key: ${{ runner.os }}-vcpkg-${{ hashFiles('**/vcpkg.json') }}
         restore-keys: |
-          vcpkg-${{ runner.os }}-
+          ${{ runner.os }}-vcpkg-
+
 
     - name: Install GMP & MPFR
       shell: bash
