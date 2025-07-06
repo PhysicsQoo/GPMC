@@ -1,105 +1,39 @@
-# ==============================================================================
-# CMakeLists.txt for GPMC
-#
-# This CMake configuration builds the GPMC Python extension module.
-# It uses modern CMake practices and is designed for use with scikit-build-core.
-#
-# Key Features:
-#   - Finds required dependencies (GMP, MPFR, ZLIB)
-#   - Adds the flow-cutter-pace17 subdirectory
-#   - Builds the gpmc Python module using scikit_build_add_python_module
-#   - Sets compile options and definitions
-#   - Links required libraries
-#   - Installs the resulting module to the correct location for packaging
-# ==============================================================================
-
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.0)
 project(gpmc CXX)
+option(GPMC_STATIC_BUILD "build gpmc as a static execution file" off)
 
-# ------------------------------------------------------------------------------
-# 1. Find required dependencies
-#    These libraries must be installed before building.
-# ------------------------------------------------------------------------------
-find_package(GMP REQUIRED)
-find_package(MPFR REQUIRED)
-find_package(ZLIB REQUIRED)
+link_directories(../.venv/lib ../downloads/gmp-6.3.0/lib)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src ../.venv/include ../downloads/gmp-6.3.0/ ../downloads/gmp-6.3.0/include)
+add_compile_options("$<$<CONFIG:Debug>:-O0>")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # These flags are only for GCC and Clang, not MSVC
+    add_compile_options(-Wall -Wno-parentheses -Wno-format -Wno-sign-compare -Wno-unused-variable -Wno-unused-result)
+else()
+    # For other compilers like MSVC, just add -Wall if you want, or nothing
+    # MSVC uses /W3 or /W4 instead of -Wall
+    add_compile_options(/W3)
+endif()
+add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-literal-suffix;-Wno-class-memaccess>")
+add_compile_options("$<$<CXX_COMPILER_ID:Clang>:-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init>")
+add_compile_options("$<$<CXX_COMPILER_ID:AppleClang>:-Wno-redundant-move;-Wno-undefined-var-template;-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init;-std=c++11>")
 
-# ------------------------------------------------------------------------------
-# 2. Add subdirectories
-#    Add the flow-cutter-pace17 project as a subdirectory.
-# ------------------------------------------------------------------------------
 add_subdirectory(flow-cutter-pace17)
 
-# ------------------------------------------------------------------------------
-# 3. Build the Python extension module
-#    - Uses scikit_build_add_python_module to create a Python-importable module.
-#    - The module name (gpmc) will be used in Python as `import gpmc`.
-#    - All relevant source files are listed here.
-#    - Ensure core/Main.cc is a valid Python module entry point (e.g., uses PYBIND11_MODULE).
-# ------------------------------------------------------------------------------
-scikit_build_add_python_module(gpmc
-    SOURCES
-        core/ComponentCache.cc
-        core/ComponentManager.cc
-        core/Counter.cc
-        core/Config.cc
-        core/Instance.cc
-        ddnnf/DecisionTree.cc
-        core/Solver.cc
-        c-mpfr/ComplexMPFR.cc
-        utils/Options.cc
-        utils/System.cc
-        preprocessor/Preprocessor.cc
-        preprocessor/TestSolver.cc
-        preprocessor/lib_sharpsat_td/subsumer.cpp
-        preprocessor/TreeDecomposition.cc
-        preprocessor/IFlowCutter.cc
-        core/Main.cc  # Python module entry point
+add_library(gpmc STATIC 
+	core/ComponentCache.cc core/ComponentManager.cc core/Counter.cc
+	core/Config.cc core/Instance.cc ddnnf/DecisionTree.cc
+	core/Solver.cc 
+	c-mpfr/ComplexMPFR.cc 
+	utils/Options.cc utils/System.cc
+	preprocessor/Preprocessor.cc preprocessor/TestSolver.cc 
+	preprocessor/lib_sharpsat_td/subsumer.cpp
+	preprocessor/TreeDecomposition.cc preprocessor/IFlowCutter.cc
+	)
+target_compile_definitions(gpmc 
+  PRIVATE $<$<CONFIG:Debug>:DEBUG>
+           __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS
 )
 
-# ------------------------------------------------------------------------------
-# 4. Set compile options and definitions
-#    - Applies warning and optimization flags.
-#    - Sets preprocessor definitions for debug and standards compliance.
-# ------------------------------------------------------------------------------
-target_compile_options(gpmc PRIVATE
-    -Wall
-    -Wno-parentheses
-    -Wno-format
-    -Wno-sign-compare
-    -Wno-unused-variable
-    -Wno-unused-result
-    "$<$<CONFIG:Debug>:-O0>"
-    "$<$<CXX_COMPILER_ID:GNU>:-Wno-literal-suffix;-Wno-class-memaccess>"
-    "$<$<CXX_COMPILER_ID:Clang>:-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init>"
-    "$<$<CXX_COMPILER_ID:AppleClang>:-Wno-redundant-move;-Wno-undefined-var-template;-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init;-std=c++11>"
-)
-
-target_compile_definitions(gpmc PRIVATE
-    "$<$<CONFIG:Debug>:DEBUG>"
-    __STDC_FORMAT_MACROS
-    __STDC_LIMIT_MACROS
-)
-
-# ------------------------------------------------------------------------------
-# 5. Link libraries
-#    - Links the gpmc module to flowcutter and system libraries.
-#    - Uses modern target-based linking for safety and clarity.
-# ------------------------------------------------------------------------------
-target_link_libraries(gpmc PRIVATE
-    flowcutter
-    ZLIB::ZLIB
-    MPFR::MPFR
-    GMP::GMP
-    # gmpxx is usually not needed if GMP::GMP includes C++ bindings
-)
-
-# ------------------------------------------------------------------------------
-# 6. Install the built module
-#    - Installs the compiled gpmc module to the wheel's src/QuPRS/utils directory.
-#    - This path should match the wheel.install-dir in pyproject.toml.
-# ------------------------------------------------------------------------------
-install(
-    TARGETS gpmc
-    DESTINATION src/QuPRS/utils
-)
+add_executable(gpmc-bin core/Main.cc)
+set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
+target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx $<$<BOOL:${GPMC_STATIC_BUILD}>:-static>)
