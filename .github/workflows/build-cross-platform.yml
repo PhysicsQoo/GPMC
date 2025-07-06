@@ -75,7 +75,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: bash
       run: |
-        cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="$CMAKE_TOOLCHAIN_FILE"
+        CXXFLAGS='' cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE="$CMAKE_TOOLCHAIN_FILE"
 
     - name: Build with CMake on Unix
       if: runner.os != 'Windows'
