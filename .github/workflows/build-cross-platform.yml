@@ -54,6 +54,10 @@ jobs:
           echo "EXTRA_CXX_FLAGS=-I$BREW_PREFIX/include" >> $GITHUB_ENV
           echo "EXTRA_LINK_FLAGS=-L$BREW_PREFIX/lib" >> $GITHUB_ENV
         elif [ "${{ runner.os }}" = "Windows" ]; then
+          if [ ! -d "vcpkg" ]; then
+            echo "Cloning vcpkg..."
+            git clone https://github.com/microsoft/vcpkg.git --depth 1
+          fi
           ./vcpkg/bootstrap-vcpkg.bat
           echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
         fi
