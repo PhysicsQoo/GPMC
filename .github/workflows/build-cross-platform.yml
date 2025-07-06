@@ -29,21 +29,29 @@ jobs:
         if [ "${{ runner.os }}" = "Linux" ]; then
           sudo apt-get update -y
           sudo apt-get install -y libgmp-dev libmpfr-dev
+          echo "EXTRA_CXX_FLAGS=-I/usr/include" >> $GITHUB_ENV
+          echo "EXTRA_LINK_FLAGS=-L/usr/lib" >> $GITHUB_ENV
+
         elif [ "${{ runner.os }}" = "macOS" ]; then
           brew install gmp mpfr
-        else    # Windows
+          BREW_PREFIX=$(brew --prefix)
+          echo "EXTRA_CXX_FLAGS=-I$BREW_PREFIX/include" >> $GITHUB_ENV
+          echo "EXTRA_LINK_FLAGS=-L$BREW_PREFIX/lib" >> $GITHUB_ENV
+
+        else  # windows-latest
           git clone https://github.com/microsoft/vcpkg.git --depth 1
           ./vcpkg/bootstrap-vcpkg.sh
           ./vcpkg/vcpkg install gmp mpfr --triplet x64-windows-static
-          echo "VCPKG_ROOT=$PWD/vcpkg" >> "$GITHUB_ENV"
-          echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> "$GITHUB_ENV"
+          echo "CMAKE_TOOLCHAIN_FILE=$PWD/vcpkg/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
         fi
 
     - name: Configure CMake
       shell: bash
       run: |
         cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-          ${CMAKE_TOOLCHAIN_FILE:+-DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE}
+          ${CMAKE_TOOLCHAIN_FILE:+-DCMAKE_TOOLCHAIN_FILE=$CMAKE_TOOLCHAIN_FILE} \
+          -DCMAKE_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
+          -DCMAKE_EXE_LINKER_FLAGS="${EXTRA_LINK_FLAGS}"
 
     - name: Build
       run: cmake --build build --config Release --parallel
