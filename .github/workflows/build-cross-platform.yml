@@ -76,8 +76,11 @@ jobs:
         if [ "${{ runner.os }}" = "Windows" ]; then
           echo "path=build\\Release\\GPMC.exe" >> "$GITHUB_OUTPUT"
         else
-          EXEC=$(find build -maxdepth 1 -type f -perm /111 -iname 'gpmc*' -exec basename {} \; | head -n1)
-          echo "path=build/$EXEC" >> "$GITHUB_OUTPUT"
+          if [ "$(uname)" = "Darwin" ]; then
+            echo "path=build/GPMC" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=build/gpmc" >> "$GITHUB_OUTPUT"
+          fi
         fi
 
     - name: Upload binary artifact
