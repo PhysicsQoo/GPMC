@@ -1,13 +1,19 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.8)
 project(gpmc CXX)
-
-option(GPMC_STATIC_BUILD "build gpmc as a static execution file" off)
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+option(GPMC_STATIC_BUILD "Build gpmc as a static executable" OFF)
 
 if(MSVC)
-    add_compile_options(/W4 /wd4554 /wd4018 /wd4389 /wd4101 /wd4189 /wd4552 /wd4774 /wd4777)
+    add_compile_options(/EHsc /W4)
+    # C4267: 'size_t' to 'int', possible loss of data
+    # C4244: conversion from '...' to '...', possible loss of data
+    # C4146: unary minus operator applied to unsigned type
+    # C4305: truncation from 'double' to 'float'
+    # C4200: zero-sized array in struct/union (nonstandard extension)
+    # C4834: discarding return value of function with [[nodiscard]]
+    # C4127: conditional expression is constant
+    add_compile_options(/wd4267 /wd4244 /wd4146 /wd4305 /wd4200 /wd4834 /wd4127)
+    
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 else()
 
     add_compile_options(
@@ -23,28 +29,44 @@ else()
     )
 endif()
 
-add_compile_options("$<$<CONFIG:Debug>:$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O0>>")
+find_package(ZLIB REQUIRED)
 
-link_directories(../.venv/lib../downloads/gmp-6.3.0/lib)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src../.venv/include../downloads/gmp-6.3.0/../downloads/gmp-6.3.0/include)
 
 add_subdirectory(flow-cutter-pace17)
 
-add_library(gpmc STATIC 
+add_library(gpmc STATIC
     core/ComponentCache.cc core/ComponentManager.cc core/Counter.cc
     core/Config.cc core/Instance.cc ddnnf/DecisionTree.cc
-    core/Solver.cc 
-    c-mpfr/ComplexMPFR.cc 
+    core/Solver.cc
+    c-mpfr/ComplexMPFR.cc
     utils/Options.cc utils/System.cc
-    preprocessor/Preprocessor.cc preprocessor/TestSolver.cc 
+    preprocessor/Preprocessor.cc preprocessor/TestSolver.cc
     preprocessor/lib_sharpsat_td/subsumer.cpp
     preprocessor/TreeDecomposition.cc preprocessor/IFlowCutter.cc
 )
-target_compile_definitions(gpmc 
-  PRIVATE $<$<CONFIG:Debug>:DEBUG>
-          __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS
+
+target_include_directories(gpmc PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src
+    ../.venv/include
+    ../downloads/gmp-6.3.0
+    ../downloads/gmp-6.3.0/include
+    ${ZLIB_INCLUDE_DIRS}
 )
+
+target_compile_definitions(gpmc PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+    __STDC_FORMAT_MACROS
+    __STDC_LIMIT_MACROS
+)
+
+target_link_libraries(gpmc PUBLIC ZLIB::zlib gmp gmpxx mpfr)
 
 add_executable(gpmc-bin core/Main.cc)
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
-target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx $<$<BOOL:${GPMC_STATIC_BUILD}>:-static>)
+
+target_link_libraries(gpmc-bin gpmc flowcutter)
+
+if(GPMC_STATIC_BUILD)
+    target_link_options(gpmc-bin PRIVATE -static)
+endif()
