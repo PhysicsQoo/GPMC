@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 project(gpmc CXX)
 option(GPMC_STATIC_BUILD "build gpmc as a static execution file" off)
 
