@@ -29,4 +29,18 @@ target_compile_definitions(gpmc
 
 add_executable(gpmc-bin core/Main.cc)
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
-target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx $<$<BOOL:${GPMC_STATIC_BUILD}>:-static>)
+
+if(GPMC_STATIC_BUILD)
+    set(ORIG_CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib")
+    
+    find_library(GMP_LIB NAMES gmp REQUIRED)
+    find_library(GMPXX_LIB NAMES gmpxx REQUIRED)
+    find_library(MPFR_LIB NAMES mpfr REQUIRED)
+    
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${ORIG_CMAKE_FIND_LIBRARY_SUFFIXES})
+    
+    target_link_libraries(gpmc-bin gpmc flowcutter z ${MPFR_LIB} ${GMPXX_LIB} ${GMP_LIB})
+else()
+    target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx)
+endif()
