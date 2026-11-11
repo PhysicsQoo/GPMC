@@ -12,6 +12,9 @@ on:
       - '.github/scripts/macos-dylib-candidate.py'
       - '.github/scripts/redistribution-inventory.py'
       - '.github/scripts/test_redistribution_inventory.py'
+      - '.github/scripts/cli-release.py'
+      - '.github/scripts/test_cli_release.py'
+      - 'docs/CLI-RELEASE-v1.0.0.md'
       - '.github/scripts/scientific-smoke.sh'
       - '.github/scripts/scientific_oracle.py'
       - '.github/workflows/build-cross-platform.yml'
@@ -105,7 +108,9 @@ jobs:
       - name: Offline redistribution-inventory negative tests
         if: matrix.target == 'linux-almalinux8-x86_64'
         shell: bash
-        run: python3 .github/scripts/test_redistribution_inventory.py
+        run: |
+          python3 .github/scripts/test_redistribution_inventory.py
+          python3 .github/scripts/test_cli_release.py
 
       - name: Build and qualify native executable
         id: native
@@ -188,6 +193,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Package system-dependency CLI executable
+        shell: bash
+        env:
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
+          CLI_TARGET: ${{ matrix.target }}
+          NATIVE_BINARY: ${{ steps.native.outputs.binary }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/cli-release.py pack \
+            --version "$CLI_VERSION" --target "$CLI_TARGET" \
+            --source-sha "$(cat source-revision.txt)" \
+            --binary "$NATIVE_BINARY" --dependencies dependencies.txt
+          python3 .github/scripts/cli-release.py verify \
+            --version "$CLI_VERSION" --target "$CLI_TARGET" \
+            --source-sha "$(cat source-revision.txt)"
+
+      - name: Upload CLI-only archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-cli-${{ matrix.target }}
+          path: dist-cli/*
+          if-no-files-found: error
+          retention-days: 14
+
   windows-archive:
     name: Native archive (windows-ucrt64-x86_64)
     runs-on: windows-2022
@@ -264,6 +293,28 @@ jobs:
         with:
           name: gpmc-qualification-windows-ucrt64-x86_64
           path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Package Windows x64 system-dependency CLI
+        shell: msys2 {0}
+        env:
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
+        run: |
+          set -euo pipefail
+          python .github/scripts/cli-release.py pack \
+            --version "$CLI_VERSION" --target windows-ucrt64-x86_64 \
+            --source-sha "$(cat source-revision.txt)" \
+            --binary build/gpmc.exe --dependencies dependencies.txt
+          python .github/scripts/cli-release.py verify \
+            --version "$CLI_VERSION" --target windows-ucrt64-x86_64 \
+            --source-sha "$(cat source-revision.txt)"
+
+      - name: Upload Windows x64 CLI-only archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-cli-windows-ucrt64-x86_64
+          path: dist-cli/*
           if-no-files-found: error
           retention-days: 14
 
@@ -380,6 +431,28 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Package Windows ARM64 system-dependency CLI
+        shell: msys2 {0}
+        env:
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
+        run: |
+          set -euo pipefail
+          python .github/scripts/cli-release.py pack \
+            --version "$CLI_VERSION" --target windows-clangarm64-aarch64 \
+            --source-sha "$(cat source-revision.txt)" \
+            --binary build-arm/gpmc.exe --dependencies dependencies.txt
+          python .github/scripts/cli-release.py verify \
+            --version "$CLI_VERSION" --target windows-clangarm64-aarch64 \
+            --source-sha "$(cat source-revision.txt)"
+
+      - name: Upload Windows ARM64 CLI-only archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-cli-windows-clangarm64-aarch64
+          path: dist-cli/*
+          if-no-files-found: error
+          retention-days: 14
+
   prepare-draft:
     # Exercise the exact tag manifest pipeline on PRs without ever publishing.
     # Only the separate tag-only create-draft job can write a private Release.
@@ -441,7 +514,7 @@ jobs:
 
   create-draft:
     # Only a verified version tag can acquire a write-capable release token.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name != 'v1.0.0'
     needs: [prepare-draft]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -485,3 +558,101 @@ jobs:
             --verify-tag --draft --prerelease --latest=false \
             --title "GPMC $GITHUB_REF_NAME native qualification" \
             --notes "Unpublished validation draft. Native smoke and exact small-CNF oracles passed, but Linux AlmaLinux 8 candidate assets are NOT automatically manylinux_2_28-certified. Do not publish or consume from QuPRS until clean-target ABI/runtime and redistribution admission is complete."
+
+  prepare-cli:
+    # Independent source-verified CLI assets, without any runtime DLL/dylib/so.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    needs: [qualify, windows-archive, windows-arm64-archive]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Download six CLI-only archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: gpmc-cli-*
+          merge-multiple: true
+          path: dist-cli
+
+      - name: Verify executable architecture, provenance, licenses and checksums
+        shell: bash
+        env:
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
+            python3 .github/scripts/cli-release.py verify \
+              --version "$CLI_VERSION" --target "$target" --source-sha "$SOURCE_SHA"
+          done
+          test "$(find dist-cli -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 6
+          test "$(find dist-cli -maxdepth 1 -name '*.sha256' -type f | wc -l)" -eq 6
+          (cd dist-cli && sha256sum -c *.sha256)
+          (cd dist-cli && sha256sum *.tar.gz > SHA256SUMS.txt)
+          echo "SIX_CLI_ASSETS_PASS version=$CLI_VERSION source=$SOURCE_SHA"
+
+  publish-cli-v1:
+    # One-shot public release after six-platform qualification on exact master.
+    # A tag created with GITHUB_TOKEN does not fire another push workflow.
+    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') }}"
+    needs: [prepare-cli]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download qualified CLI archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: gpmc-cli-*
+          merge-multiple: true
+          path: dist-cli
+
+      - name: Reverify immutable release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
+            python3 .github/scripts/cli-release.py verify \
+              --version v1.0.0 --target "$target" --source-sha "$GITHUB_SHA"
+          done
+          test "$(find dist-cli -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 6
+          (cd dist-cli && sha256sum *.tar.gz > SHA256SUMS.txt)
+          echo "RELEASE_V1_CLI_ASSETS_PASS source=$GITHUB_SHA"
+
+      - name: Create immutable v1.0.0 tag and publish verified six-CLI Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            echo 'v1.0.0 Release already exists; refusing asset overwrite' >&2
+            exit 1
+          fi
+          ref_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" --jq '.object.sha' 2>/dev/null || true)"
+          if [[ -n "$ref_sha" ]]; then
+            test "$ref_sha" = "$GITHUB_SHA"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref=refs/tags/v1.0.0 -f sha="$GITHUB_SHA" >/dev/null
+          fi
+          gh release create v1.0.0 dist-cli/gpmc-cli-v1.0.0-*.tar.gz dist-cli/SHA256SUMS.txt \
+            --verify-tag --title "GPMC v1.0.0 — PhysicsQoo CLI" \
+            --notes-file docs/CLI-RELEASE-v1.0.0.md
+          gh release view v1.0.0 --json tagName,isDraft,isPrerelease,assets \
+            --jq '{tag:.tagName,draft:.isDraft,prerelease:.isPrerelease,assets:[.assets[].name]}'
