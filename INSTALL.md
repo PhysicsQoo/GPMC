@@ -33,9 +33,12 @@ and uploads the tested executable, a SHA-256 checksum, source Git revision,
 the exact solver smoke output, multi-case scientific test transcript, Linux
 independent oracle transcript, and a `build-provenance.txt` manifest recording compiler/CMake and installed
 GMP, MPFR, zlib package versions plus resolved include/library paths. SHA-256
-is rechecked before upload. These attest the tested binary and its source,
-but do **not** certify bit-identical rebuilds: packages, toolchains, and
-runner images are not all locked to immutable content digests.
+is rechecked before upload. For pull requests the tested checkout can be
+GitHub's synthetic merge revision; the manifest records its SHA as well as
+the PR head and base SHAs for unambiguous source provenance. These attest the
+tested binary and its source, but do **not** certify bit-identical rebuilds:
+packages, toolchains, and runner images are not all locked to immutable
+content digests.
 
 The native scientific tests cover integer MC/PMC, complex WMC/WPMC,
 model cancellation, projected complex weights, and a decimal precision
