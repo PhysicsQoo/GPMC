@@ -49,14 +49,32 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install Linux dependencies
+      - name: Verify Linux host runtime (install only if missing)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          # Do not install GMP/MPFR on host: portable bundle must supply them.
-          sudo apt-get update
-          sudo apt-get install -y zlib1g
+          # GMP/MPFR must be resolved from the archive, not host packages.
+          if [[ "$(dpkg-query -W -f='${Status}' zlib1g 2>/dev/null || true)" == 'install ok installed' ]]; then
+            echo 'zlib1g already present: skipping unnecessary apt update/download.'
+          else
+            installed=false
+            for attempt in 1 2 3; do
+              echo "Host zlib1g install attempt $attempt/3"
+              if sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
+                && sudo apt-get install -y --no-install-recommends \
+                   -o Acquire::Retries=2 -o Acquire::http::Timeout=20 zlib1g; then
+                installed=true
+                break
+              fi
+              if (( attempt < 3 )); then sleep "$((attempt * 10))"; fi
+            done
+            if [[ "$installed" != true ]]; then
+              echo 'Required host zlib runtime unavailable: cannot certify extracted Linux archive.' >&2
+              exit 1
+            fi
+          fi
+          test "$(dpkg-query -W -f='${Status}' zlib1g 2>/dev/null)" = 'install ok installed'
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
