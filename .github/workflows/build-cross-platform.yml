@@ -30,6 +30,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Report the precise PR branch HEAD, not the synthetic merge SHA.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
 
@@ -57,6 +59,18 @@ jobs:
                     -o Acquire::Retries=2 -o Acquire::http::Timeout=20 "${missing[@]}"; then
                 installed=true
                 break
+              fi
+              # Azure hosted mirror DNS can fail independently of the
+              # official Ubuntu archive. Try an independently resolving
+              # official mirror once; never turn a missing dependency into PASS.
+              if (( attempt == 1 )) && [[ -f /etc/apt/apt-mirrors.txt ]] \
+                  && grep -q 'azure.archive.ubuntu.com' /etc/apt/apt-mirrors.txt; then
+                if getent ahostsv4 archive.ubuntu.com >/dev/null 2>&1; then
+                  sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+                  echo 'Using official Ubuntu archive after Azure mirror fetch failure.'
+                else
+                  echo 'Official Ubuntu archive DNS also unavailable; retaining fail-closed retries.'
+                fi
               fi
               if (( attempt < 3 )); then sleep "$((attempt * 10))"; fi
             done
@@ -173,10 +187,10 @@ jobs:
           build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
           sha256sum build/gpmc.exe > build/gpmc.sha256
-          printf '%s\n' "$GITHUB_SHA" > build/source-revision.txt
+          printf '%s\n' '${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}' > build/source-revision.txt
           sha256sum -c build/gpmc.sha256
           {
-            printf 'tested_checkout_sha=%s\n' "$GITHUB_SHA"
+            printf 'tested_checkout_sha=%s\n' "$(cat build/source-revision.txt)"
             printf 'pr_head_sha=%s\n' '${{ github.event.pull_request.head.sha || github.sha }}'
             printf 'base_sha=%s\n' '${{ github.event.pull_request.base.sha || github.sha }}'
             printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"

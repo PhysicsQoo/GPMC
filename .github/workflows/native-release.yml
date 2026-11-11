@@ -10,6 +10,8 @@ on:
       - '.github/scripts/build-linux-candidate.sh'
       - '.github/scripts/windows-runtime-audit.py'
       - '.github/scripts/macos-dylib-candidate.py'
+      - '.github/scripts/redistribution-inventory.py'
+      - '.github/scripts/test_redistribution_inventory.py'
   workflow_dispatch:
   push:
     tags: ['v[0-9]*']
@@ -46,6 +48,7 @@ jobs:
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           submodules: recursive
 
@@ -82,6 +85,11 @@ jobs:
         run: |
           set -euo pipefail
           brew install gmp mpfr zlib cmake ninja
+
+      - name: Offline redistribution-inventory negative tests
+        if: matrix.target == 'linux-almalinux8-x86_64'
+        shell: bash
+        run: python3 .github/scripts/test_redistribution_inventory.py
 
       - name: Build and qualify native executable
         id: native
@@ -144,6 +152,18 @@ jobs:
           fi
           printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
 
+      - name: Inventory actual package contents without claiming legal admission
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          archive="dist/gpmc-${RELEASE_VERSION}-${RELEASE_TARGET}.tar.gz"
+          python3 .github/scripts/redistribution-inventory.py --archive "$archive" \
+            --target "$RELEASE_TARGET" --source-sha "$(cat source-revision.txt)" \
+            --output "$archive.redistribution.json"
+
       - name: Upload qualification archive and checksum
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -160,6 +180,7 @@ jobs:
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           submodules: recursive
 
@@ -193,8 +214,8 @@ jobs:
           pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gmp mingw-w64-ucrt-x86_64-mpfr mingw-w64-ucrt-x86_64-zlib >> dependencies.txt
           # The PR checkout is the exact source that GitHub Actions supplies.
           # MSYS2 UCRT64's minimal PATH need not contain Git.
-          printf '%s\n' "$GITHUB_SHA" > source-revision.txt
-          revision="$GITHUB_SHA"
+          printf '%s\n' "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}" > source-revision.txt
+          revision="$(cat source-revision.txt)"
           python .github/scripts/native-release-bundle.py pack --target windows-ucrt64-x86_64 --version "$RELEASE_VERSION" --source-sha "$revision" --binary build/gpmc.exe --runtime-dir build/windows-runtime --dependencies dependencies.txt --abi-report abi-report.json
 
       - name: Set up independent native Windows Python
@@ -210,6 +231,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $revision = (Get-Content source-revision.txt).Trim()
           python .github/scripts/native-release-bundle.py verify --target windows-ucrt64-x86_64 --version "$env:RELEASE_VERSION" --source-sha "$revision"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Inventory Windows x64 redistribution obligations
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "dist/gpmc-$env:RELEASE_VERSION-windows-ucrt64-x86_64.tar.gz"
+          python .github/scripts/redistribution-inventory.py --archive $archive --target windows-ucrt64-x86_64 --source-sha (Get-Content source-revision.txt).Trim() --output "$archive.redistribution.json"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows binary, runtime DLLs and checksums
@@ -230,6 +261,7 @@ jobs:
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           submodules: recursive
 
@@ -272,14 +304,16 @@ jobs:
             --output abi-report.json --dependencies dependencies.txt
           pacman -Q mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-gmp \
             mingw-w64-clang-aarch64-mpfr mingw-w64-clang-aarch64-zlib >> dependencies.txt
+          printf '%s\n' "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}" > source-revision.txt
+          revision="$(cat source-revision.txt)"
           python .github/scripts/native-release-bundle.py pack \
             --target windows-clangarm64-aarch64 --version "$RELEASE_VERSION" \
-            --source-sha "$GITHUB_SHA" --binary build-arm/gpmc.exe \
+            --source-sha "$revision" --binary build-arm/gpmc.exe \
             --runtime-dir build/arm64-runtime \
             --dependencies dependencies.txt --abi-report abi-report.json
           python .github/scripts/native-release-bundle.py verify \
             --target windows-clangarm64-aarch64 --version "$RELEASE_VERSION" \
-            --source-sha "$GITHUB_SHA"
+            --source-sha "$revision"
 
       - name: Validate extracted ARM64 executable using native Windows loader
         shell: pwsh
@@ -310,6 +344,17 @@ jobs:
           }
           Write-Host 'WINDOWS_ARM64_NATIVE_UNPACK_PASS'
           Write-Host 'CANDIDATE_ONLY distribution_admitted=false'
+
+      - name: Inventory Windows ARM64 redistribution obligations
+        shell: msys2 {0}
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          set -euo pipefail
+          archive="dist/gpmc-$RELEASE_VERSION-windows-clangarm64-aarch64.tar.gz"
+          python .github/scripts/redistribution-inventory.py --archive "$archive" \
+            --target windows-clangarm64-aarch64 --source-sha "$(cat source-revision.txt)" \
+            --output "$archive.redistribution.json"
 
       - name: Upload unpublished ARM64 candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -353,16 +398,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd dist
+          # Keep the checkout as cwd. The inventory validator resides in
+          # .github/scripts, while downloaded assets live under dist/.
           for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
-            archive="gpmc-$GITHUB_REF_NAME-$target.tar.gz"
+            archive="dist/gpmc-$GITHUB_REF_NAME-$target.tar.gz"
             test -f "$archive"
             test -f "$archive.sha256"
-            sha256sum -c "$archive.sha256"
+            (cd dist && sha256sum -c "$(basename "$archive").sha256")
+            test -f "$archive.redistribution.json"
+            python3 .github/scripts/redistribution-inventory.py --archive "$archive" \
+              --target "$target" --source-sha "$GITHUB_SHA" \
+              --output "$archive.redistribution.json"
             test "$(tar -xzOf "$archive" provenance.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_commit"])')" = "$GITHUB_SHA"
           done
-          test "$(find . -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 6
-          sha256sum gpmc-*.tar.gz > SHA256SUMS.txt
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 6
+          # Reject any unexpected extra tarballs or inventory sidecars.
+          test "$(find dist -maxdepth 1 -name '*.redistribution.json' -type f | wc -l)" -eq 6
+          (cd dist && sha256sum gpmc-*.tar.gz gpmc-*.redistribution.json > SHA256SUMS.txt)
 
       - name: Create unpublished release draft (human admission gate)
         env:
@@ -374,7 +426,7 @@ jobs:
             echo "Release already exists: refusing to overwrite assets" >&2
             exit 1
           fi
-          gh release create "$GITHUB_REF_NAME" dist/gpmc-*.tar.gz dist/SHA256SUMS.txt \
+          gh release create "$GITHUB_REF_NAME" dist/gpmc-*.tar.gz dist/gpmc-*.redistribution.json dist/SHA256SUMS.txt \
             --verify-tag --draft --prerelease --latest=false \
             --title "GPMC $GITHUB_REF_NAME native qualification" \
             --notes "Unpublished validation draft. Native smoke and exact small-CNF oracles passed, but Linux AlmaLinux 8 candidate assets are NOT automatically manylinux_2_28-certified. Do not publish or consume from QuPRS until clean-target ABI/runtime and redistribution admission is complete."
