@@ -176,7 +176,9 @@ class RedistributionInventoryContract(unittest.TestCase):
         windows = workflow[start:stop]
         self.assertIn('revision="$(cat source-revision.txt)"', windows)
         self.assertNotIn('revision="$GITHUB_SHA"', windows)
-        self.assertEqual(4, workflow.count(
+        # Qualification, both Windows jobs, and both asset-preparation jobs
+        # must check out the same exact source revision.
+        self.assertEqual(5, workflow.count(
             "ref: ${{ github.event_name == 'pull_request' && "
             "github.event.pull_request.head.sha || github.sha }}"))
 
