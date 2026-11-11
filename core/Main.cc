@@ -114,7 +114,9 @@ static void SetSigAct() {
 	// signal(SIGABRT, SIGINT_exit);       //  6, SIGABRT
 	signal(SIGSEGV, SIGINT_exit);       // 11, SIGSEGV
 	signal(SIGTERM, SIGINT_interrupt);  // 15, SIGTERM
+	#if defined(SIGXCPU)
 	signal(SIGXCPU, SIGINT_exit);
+#endif
 }
 //=================================================================================================
 static mpfr::mpreal Log10(const mpz_class& num) {
@@ -314,6 +316,14 @@ int main(int argc, char** argv)
 		// interrupts:
 		SetSigAct();
 
+		// Windows lacks POSIX setrlimit. Reject explicitly requested limits
+		// rather than giving callers a false sense of resource isolation.
+#if defined(_WIN32)
+		if (cpu_lim != INT32_MAX || mem_lim != INT32_MAX) {
+			fprintf(stderr, "GPMC: -cpu-lim and -mem-lim are unsupported on Windows; use an external resource supervisor.\\n");
+			return 2;
+		}
+#else
 		// Set limit on CPU-time:
 		if (cpu_lim != INT32_MAX){
 			rlimit rl;
@@ -334,6 +344,8 @@ int main(int argc, char** argv)
 				if (setrlimit(RLIMIT_AS, &rl) == -1)
 					printf("c o WARNING! Could not set resource limit: Virtual memory.\n");
 			} }
+
+#endif
 
 		if(config.cntr.mode == MC || config.cntr.mode == PMC || config.cntr.natw) {
 			Counter<mpz_class> S(config);
