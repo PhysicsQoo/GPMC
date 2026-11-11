@@ -82,7 +82,7 @@ jobs:
             image="${{ matrix.image }}"
             docker pull "$image"
             docker image inspect "$image" --format '{{index .RepoDigests 0}}' > build-image-digest.txt
-            docker run --rm --mount type=bind,src="$GITHUB_WORKSPACE",dst=/src -w /src               "$image" bash .github/scripts/build-linux-candidate.sh
+            docker run --rm --env HOST_UID="$(id -u)" --env HOST_GID="$(id -g)" --mount type=bind,src="$GITHUB_WORKSPACE",dst=/src -w /src "$image" bash .github/scripts/build-linux-candidate.sh
             binary=build/gpmc
             cat dependencies.txt
             printf 'build_image=%s\n' "$(cat build-image-digest.txt)" >> dependencies.txt

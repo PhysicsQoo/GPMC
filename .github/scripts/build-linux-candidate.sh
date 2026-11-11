@@ -18,3 +18,9 @@ if grep -F 'not found' dependencies.txt; then
     exit 1
 fi
 rpm -q gmp gmp-devel mpfr mpfr-devel zlib zlib-devel >> dependencies.txt
+
+# Builder is root inside Docker. Return provenance to the host runner account
+# so subsequent SHA checks can append the resolved image digest.
+if [[ -n "${HOST_UID:-}" && -n "${HOST_GID:-}" ]]; then
+    chown "$HOST_UID:$HOST_GID" dependencies.txt
+fi
