@@ -167,6 +167,13 @@ class RedistributionInventoryContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "provenance mismatch"):
                 module.inventory(archive, TARGET, SOURCE)
 
+    def test_native_packager_explicitly_marks_nonadmission(self):
+        producer = (SCRIPT.parent / "native-release-bundle.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"distribution_admitted": False,', producer)
+        self.assertIn('"admission": "native-build-and-science-smoke-only",', producer)
+
     def test_build_workflow_pins_pr_checkout_and_provenance(self):
         workflow = (SCRIPT.parent.parent / "workflows" /
                     "build-cross-platform.yml").read_text(encoding="utf-8")
