@@ -12,8 +12,22 @@ on:
       - '.github/scripts/macos-dylib-candidate.py'
       - '.github/scripts/redistribution-inventory.py'
       - '.github/scripts/test_redistribution_inventory.py'
+      - '.github/scripts/scientific-smoke.sh'
+      - '.github/scripts/scientific_oracle.py'
+      - '.github/workflows/build-cross-platform.yml'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'core/**'
+      - 'c-mpfr/**'
+      - 'ddnnf/**'
+      - 'flow-cutter-pace17/**'
+      - 'mpfr/**'
+      - 'mtl/**'
+      - 'preprocessor/**'
+      - 'utils/**'
   workflow_dispatch:
   push:
+    branches: [master]
     tags: ['v[0-9]*']
 
 permissions:
