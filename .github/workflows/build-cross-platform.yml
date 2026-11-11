@@ -55,7 +55,6 @@ jobs:
           msystem: UCRT64
           update: true
           install: >-
-            git
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
@@ -97,7 +96,7 @@ jobs:
           build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
           sha256sum build/gpmc.exe > build/gpmc.sha256
-          git rev-parse HEAD > build/source-revision.txt
+          printf '%s\n' "$GITHUB_SHA" > build/source-revision.txt
 
       - name: Upload tested binary and provenance
         uses: actions/upload-artifact@v4
