@@ -83,7 +83,11 @@ jobs:
             sha256sum build/gpmc > build/gpmc.sha256
           fi
           git rev-parse HEAD > build/source-revision.txt
-          shasum -a 256 -c build/gpmc.sha256 >/dev/null 2>&1 || { if [[ "${{ runner.os }}" == "Linux" ]]; then sha256sum -c build/gpmc.sha256; else exit 1; fi; }
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            shasum -a 256 -c build/gpmc.sha256
+          else
+            sha256sum -c build/gpmc.sha256
+          fi
           {
             printf 'source_commit=%s\n' "$(cat build/source-revision.txt)"
             printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"
