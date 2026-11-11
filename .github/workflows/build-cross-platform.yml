@@ -33,13 +33,45 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Install Linux native dependencies
+      - name: Ensure Linux build dependencies (reuse runner, bounded retry)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+          missing=()
+          for package in libgmp-dev libmpfr-dev zlib1g-dev; do
+            if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != 'install ok installed' ]]; then
+              missing+=("$package")
+            fi
+          done
+          if ! command -v cmake >/dev/null 2>&1; then missing+=(cmake); fi
+          if ! command -v ninja >/dev/null 2>&1; then missing+=(ninja-build); fi
+          if (( ${#missing[@]} )); then
+            printf 'Missing Ubuntu build packages: %s\n' "${missing[*]}"
+            # Contact apt only if required packages are missing from the runner.
+            installed=false
+            for attempt in 1 2 3; do
+              printf 'APT attempt %s/3\n' "$attempt"
+              if sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
+                && sudo apt-get install -y --no-install-recommends \
+                    -o Acquire::Retries=2 -o Acquire::http::Timeout=20 "${missing[@]}"; then
+                installed=true
+                break
+              fi
+              if (( attempt < 3 )); then sleep "$((attempt * 10))"; fi
+            done
+            if [[ "$installed" != true ]]; then
+              echo 'Required Ubuntu build packages unavailable after bounded retry (DNS/mirror outage).' >&2
+              exit 1
+            fi
+          else
+            echo 'All Linux build dependencies already present: skipping apt/network.'
+          fi
+          cmake --version | head -n 1
+          ninja --version
+          for package in libgmp-dev libmpfr-dev zlib1g-dev; do
+            test "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" = 'install ok installed'
+          done
 
       - name: Install macOS native dependencies
         if: runner.os == 'macOS'
@@ -113,7 +145,14 @@ jobs:
             cmake --version | sed -n '1p'
             c++ --version | sed -n '1p'
             if [[ "${{ runner.os }}" == "Linux" ]]; then
-              dpkg-query -W -f='${Package} ${Version}\n' libgmp-dev libmpfr-dev zlib1g-dev cmake ninja-build
+              dpkg-query -W -f='${Package} ${Version}\n' libgmp-dev libmpfr-dev zlib1g-dev
+              for package in cmake ninja-build; do
+                if ! dpkg-query -W -f='${Package} ${Version}\n' "$package" 2>/dev/null; then
+                  command_name="$package"
+                  if [[ "$package" == 'ninja-build' ]]; then command_name=ninja; fi
+                  printf '%s runner_tool=%s\n' "$package" "$(command -v "$command_name")"
+                fi
+              done
             else
               brew list --versions gmp mpfr zlib cmake ninja
             fi

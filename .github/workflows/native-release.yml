@@ -7,6 +7,9 @@ on:
       - '.github/workflows/native-release.yml'
       - '.github/scripts/native-release-bundle.py'
       - '.github/scripts/native-abi-audit.py'
+      - '.github/scripts/build-linux-candidate.sh'
+      - '.github/scripts/windows-runtime-audit.py'
+      - '.github/scripts/macos-dylib-candidate.py'
   workflow_dispatch:
   push:
     tags: ['v[0-9]*']
@@ -29,9 +32,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            target: linux-ubuntu2404-x86_64
+            target: linux-almalinux8-x86_64
+            image: quay.io/pypa/manylinux_2_28_x86_64:latest
           - os: ubuntu-24.04-arm
-            target: linux-ubuntu2404-aarch64
+            target: linux-almalinux8-aarch64
+            image: quay.io/pypa/manylinux_2_28_aarch64:latest
           - os: macos-15
             target: macos15-arm64
           - os: macos-15-intel
@@ -44,13 +49,32 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install Linux dependencies
+      - name: Verify Linux host runtime (install only if missing)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+          # GMP/MPFR must be resolved from the archive, not host packages.
+          if [[ "$(dpkg-query -W -f='${Status}' zlib1g 2>/dev/null || true)" == 'install ok installed' ]]; then
+            echo 'zlib1g already present: skipping unnecessary apt update/download.'
+          else
+            installed=false
+            for attempt in 1 2 3; do
+              echo "Host zlib1g install attempt $attempt/3"
+              if sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
+                && sudo apt-get install -y --no-install-recommends \
+                   -o Acquire::Retries=2 -o Acquire::http::Timeout=20 zlib1g; then
+                installed=true
+                break
+              fi
+              if (( attempt < 3 )); then sleep "$((attempt * 10))"; fi
+            done
+            if [[ "$installed" != true ]]; then
+              echo 'Required host zlib runtime unavailable: cannot certify extracted Linux archive.' >&2
+              exit 1
+            fi
+          fi
+          test "$(dpkg-query -W -f='${Status}' zlib1g 2>/dev/null)" = 'install ok installed'
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -66,24 +90,32 @@ jobs:
           set -euo pipefail
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
-            cmake -S . -B build-static -G Ninja -DCMAKE_BUILD_TYPE=Release -DGPMC_STATIC_BUILD=ON
-            cmake --build build-static --parallel 2
-            binary=build-static/gpmc
+            # Production candidate: replaceable GNU GMP/MPFR dylibs are
+            # packaged below with @loader_path references; the existing static
+            # native mode remains available as a documented fallback.
+            cmake -S . -B build-macos-dylib -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DGPMC_STATIC_BUILD=OFF
+            cmake --build build-macos-dylib --parallel 2
+            binary=build-macos-dylib/gpmc
             otool -L "$binary" > dependencies.txt
-            if grep -E '(libgmp|libgmpxx|libmpfr).*\.dylib' dependencies.txt; then
-              echo "Unexpected dynamic GMP/MPFR dependency" >&2
-              exit 1
-            fi
           else
-            cmake --preset release
-            cmake --build --preset release --parallel 2
+            image="${{ matrix.image }}"
+            docker pull "$image"
+            docker image inspect "$image" --format '{{index .RepoDigests 0}}' > build-image-digest.txt
+            docker run --rm --env HOST_UID="$(id -u)" --env HOST_GID="$(id -g)" --mount type=bind,src="$GITHUB_WORKSPACE",dst=/src -w /src "$image" bash .github/scripts/build-linux-candidate.sh
             binary=build/gpmc
-            ldd "$binary" > dependencies.txt
+            cat dependencies.txt
+            printf 'build_image=%s\n' "$(cat build-image-digest.txt)" >> dependencies.txt
           fi
           test -x "$binary"
           bash .github/scripts/scientific-smoke.sh "$binary"
           python3 .github/scripts/scientific_oracle.py "$binary"
-          python3 .github/scripts/native-abi-audit.py --binary "$binary" --target "${{ matrix.target }}" --output abi-report.json
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            python3 .github/scripts/native-abi-audit.py --binary "$binary" --target "${{ matrix.target }}" --output abi-report.json
+            python3 -c 'import json; p=json.load(open("abi-report.json"))["assessment"]; assert p["glibc_2_28_symbol_floor_pass"], p'
+          fi
+          # On macOS, install_name_tool changes Mach-O contents and re-signs
+          # the relocated bundle; the macOS packaging step audits the final
+          # staged executable rather than the original build output.
           echo "binary=$binary" >> "$GITHUB_OUTPUT"
           git rev-parse HEAD > source-revision.txt
 
@@ -96,8 +128,20 @@ jobs:
         run: |
           set -euo pipefail
           revision="$(cat source-revision.txt)"
-          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json
-          python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json --runtime-dir build/libs
+            python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
+          else
+            # Native macOS candidate: bundle relocatable, replaceable dylibs.
+            # Both the signed executable and all libraries are hashed at rest.
+            python3 .github/scripts/macos-dylib-candidate.py bundle \
+              --arch "$(uname -m)" --version "$RELEASE_VERSION" --source-sha "$revision" \
+              --binary "$NATIVE_BINARY" \
+              --gmp-prefix "$(brew --prefix gmp)" \
+              --mpfr-prefix "$(brew --prefix mpfr)"
+            python3 .github/scripts/macos-dylib-candidate.py verify \
+              --arch "$(uname -m)" --version "$RELEASE_VERSION" --source-sha "$revision"
+          fi
           printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
 
       - name: Upload qualification archive and checksum
@@ -108,9 +152,176 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  windows-archive:
+    name: Native archive (windows-ucrt64-x86_64)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Windows UCRT64 toolchain
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-gmp
+            mingw-w64-ucrt-x86_64-mpfr
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-binutils
+
+      - name: Build, audit DLL closure and package Windows candidate
+        shell: msys2 {0}
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          set -euo pipefail
+          cmake --preset release
+          cmake --build --preset release --parallel 2
+          test -x build/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build/gpmc.exe
+          python .github/scripts/scientific_oracle.py build/gpmc.exe
+          python .github/scripts/windows-runtime-audit.py --binary build/gpmc.exe --runtime-dir build/windows-runtime --output abi-report.json --dependencies dependencies.txt
+          pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gmp mingw-w64-ucrt-x86_64-mpfr mingw-w64-ucrt-x86_64-zlib >> dependencies.txt
+          # The PR checkout is the exact source that GitHub Actions supplies.
+          # MSYS2 UCRT64's minimal PATH need not contain Git.
+          printf '%s\n' "$GITHUB_SHA" > source-revision.txt
+          revision="$GITHUB_SHA"
+          python .github/scripts/native-release-bundle.py pack --target windows-ucrt64-x86_64 --version "$RELEASE_VERSION" --source-sha "$revision" --binary build/gpmc.exe --runtime-dir build/windows-runtime --dependencies dependencies.txt --abi-report abi-report.json
+
+      - name: Set up independent native Windows Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify extracted archive using native Windows loader without MSYS2 PATH
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $revision = (Get-Content source-revision.txt).Trim()
+          python .github/scripts/native-release-bundle.py verify --target windows-ucrt64-x86_64 --version "$env:RELEASE_VERSION" --source-sha "$revision"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows binary, runtime DLLs and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-qualification-windows-ucrt64-x86_64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+
+  windows-arm64-archive:
+    name: Native archive (windows-clangarm64-aarch64)
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up native MSYS2 CLANGARM64
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: CLANGARM64
+          # Avoid a full MSYS2 system upgrade on an ephemeral ARM runner.
+          # Required CLANGARM64 packages remain explicitly installed.
+          update: false
+          install: >-
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-ninja
+            mingw-w64-clang-aarch64-gmp
+            mingw-w64-clang-aarch64-mpfr
+            mingw-w64-clang-aarch64-zlib
+            mingw-w64-clang-aarch64-python
+            mingw-w64-clang-aarch64-binutils
+
+      - name: Build, check science and bundle native PE ARM64 candidate
+        shell: msys2 {0}
+        env:
+          CC: clang
+          CXX: clang++
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          set -euo pipefail
+          test "$MSYSTEM" = "CLANGARM64"
+          # MSYS2 bash may itself run under x64 emulation on Windows ARM.
+          # PE Machine=0xAA64 is independently checked for the EXE and DLLs.
+          cmake -S . -B build-arm -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-arm --parallel 2
+          test -x build-arm/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build-arm/gpmc.exe
+          python .github/scripts/scientific_oracle.py build-arm/gpmc.exe
+          python .github/scripts/windows-runtime-audit.py \
+            --arch aarch64 --binary build-arm/gpmc.exe \
+            --runtime-dir build/arm64-runtime \
+            --output abi-report.json --dependencies dependencies.txt
+          pacman -Q mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-gmp \
+            mingw-w64-clang-aarch64-mpfr mingw-w64-clang-aarch64-zlib >> dependencies.txt
+          python .github/scripts/native-release-bundle.py pack \
+            --target windows-clangarm64-aarch64 --version "$RELEASE_VERSION" \
+            --source-sha "$GITHUB_SHA" --binary build-arm/gpmc.exe \
+            --runtime-dir build/arm64-runtime \
+            --dependencies dependencies.txt --abi-report abi-report.json
+          python .github/scripts/native-release-bundle.py verify \
+            --target windows-clangarm64-aarch64 --version "$RELEASE_VERSION" \
+            --source-sha "$GITHUB_SHA"
+
+      - name: Validate extracted ARM64 executable using native Windows loader
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "dist/gpmc-$env:RELEASE_VERSION-windows-clangarm64-aarch64.tar.gz"
+          $target = Join-Path $env:RUNNER_TEMP 'gpmc-arm64-clean'
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          tar -xzf $archive -C $target
+          if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
+          $dlls = @(Get-ChildItem -LiteralPath $target -Filter '*.dll')
+          if ($dlls.Count -lt 3) { throw 'Bundled GMP/MPFR DLL closure missing' }
+          $cnf = Join-Path $target 'one.cnf'
+          [System.IO.File]::WriteAllText($cnf, "p cnf 1 1`n1 0`n")
+          $exe = Join-Path $target 'gpmc.exe'
+          $originalPath = $env:PATH
+          try {
+            $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+            $output = & $exe '-mode=0' $cnf
+            if ($LASTEXITCODE -ne 0) { throw "Native Windows ARM64 GPMC failed with $LASTEXITCODE" }
+            if ($output -notcontains 'c s exact arb int 1') {
+              throw 'Native Windows ARM64 model-counting witness mismatch'
+            }
+          } finally {
+            $env:PATH = $originalPath
+          }
+          Write-Host 'WINDOWS_ARM64_NATIVE_UNPACK_PASS'
+          Write-Host 'CANDIDATE_ONLY distribution_admitted=false'
+
+      - name: Upload unpublished ARM64 candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-qualification-windows-clangarm64-aarch64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
   prepare-draft:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: qualify
+    needs: [qualify, windows-archive, windows-arm64-archive]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -131,7 +342,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
           test "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")" = "$(git rev-parse HEAD)"
 
-      - name: Download the four qualified archives
+      - name: Download the six qualified archives
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: gpmc-qualification-*
@@ -143,14 +354,14 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for target in linux-ubuntu2404-x86_64 linux-ubuntu2404-aarch64 macos15-arm64 macos15-x86_64; do
+          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
             archive="gpmc-$GITHUB_REF_NAME-$target.tar.gz"
             test -f "$archive"
             test -f "$archive.sha256"
             sha256sum -c "$archive.sha256"
             test "$(tar -xzOf "$archive" provenance.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_commit"])')" = "$GITHUB_SHA"
           done
-          test "$(find . -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 4
+          test "$(find . -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 6
           sha256sum gpmc-*.tar.gz > SHA256SUMS.txt
 
       - name: Create unpublished release draft (human admission gate)
@@ -166,4 +377,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/gpmc-*.tar.gz dist/SHA256SUMS.txt \
             --verify-tag --draft --prerelease --latest=false \
             --title "GPMC $GITHUB_REF_NAME native qualification" \
-            --notes "Unpublished validation draft. Native smoke and exact small-CNF oracles passed, but Linux Ubuntu 24.04 assets are NOT manylinux_2_28-qualified. Do not publish or consume from QuPRS until clean-target ABI/runtime and redistribution admission is complete."
+            --notes "Unpublished validation draft. Native smoke and exact small-CNF oracles passed, but Linux AlmaLinux 8 candidate assets are NOT automatically manylinux_2_28-certified. Do not publish or consume from QuPRS until clean-target ABI/runtime and redistribution admission is complete."

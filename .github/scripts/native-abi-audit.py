@@ -80,6 +80,20 @@ def macos_abi(binary: Path) -> dict:
         lib for lib in names
         if re.search(r"/lib(?:gmp(?:xx)?|mpfr)(?:\.|$)", lib)
     ]
+    # Source-pinned release candidates may embed exactly the three
+    # replaceable GMP/GMPXX/MPFR dylibs with relative @loader_path imports.
+    # Arbitrary Homebrew/system paths and unexpected dylibs remain forbidden.
+    bundled = re.compile(
+        r"^@loader_path/libs/lib(?:gmp(?:xx)?|mpfr)\.[0-9]+\.dylib$"
+    )
+    unexpected = [lib for lib in names if not (
+        lib.startswith("/usr/lib/") or lib.startswith("/System/Library/")
+        or bundled.fullmatch(lib)
+    )]
+    if unexpected:
+        raise ValueError(f"macOS requires non-system dylibs: {unexpected}")
+    if not minos or any(tuple(map(int, x.split("."))) > (15, 0) for x in minos):
+        raise ValueError(f"macOS deployment target exceeds 15.0: {minos}")
     return {
         "format": "Mach-O",
         "dynamic_libraries": names,

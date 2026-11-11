@@ -21,10 +21,12 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SUPPORTED = {
-    "linux-ubuntu2404-x86_64": ("elf", 62),
-    "linux-ubuntu2404-aarch64": ("elf", 183),
+    "linux-almalinux8-x86_64": ("elf", 62),
+    "linux-almalinux8-aarch64": ("elf", 183),
     "macos15-arm64": ("macho", 0x0100000C),
     "macos15-x86_64": ("macho", 0x01000007),
+    "windows-ucrt64-x86_64": ("pe", 0x8664),
+    "windows-clangarm64-aarch64": ("pe", 0xAA64),
 }
 LICENSES = (
     "LICENSE.md",
@@ -46,11 +48,18 @@ def check_architecture(data: bytes, target: str) -> None:
             and data[:6] == b"\x7fELF\x02\x01"
             and struct.unpack_from("<H", data, 18)[0] == architecture
         )
-    else:
+    elif kind == "macho":
         valid = (
             len(data) >= 8
             and data[:4] == b"\xcf\xfa\xed\xfe"
             and struct.unpack_from("<I", data, 4)[0] == architecture
+        )
+    else:
+        offset = struct.unpack_from("<I", data, 0x3C)[0] if len(data) >= 0x40 else 0
+        valid = (
+            data[:2] == b"MZ" and offset > 0 and offset <= len(data) - 6
+            and data[offset:offset + 4] == b"PE\x00\x00"
+            and struct.unpack_from("<H", data, offset + 4)[0] == architecture
         )
     if not valid:
         raise ValueError(f"Incorrect native binary architecture for {target}")
@@ -80,7 +89,40 @@ def package(args: argparse.Namespace) -> None:
     name = expected_name(args.version, args.target)
     binary = Path(args.binary).read_bytes()
     check_architecture(binary, args.target)
+    executable_name = "gpmc.exe" if args.target.startswith("windows-") else "gpmc"
     dependencies = Path(args.dependencies).read_bytes()
+    runtime_libs = {}
+    if args.target.startswith("linux-"):
+        if not args.runtime_dir:
+            raise ValueError("Linux candidate requires bundled shared GMP/MPFR libraries")
+        expected = {"libgmp.so.10", "libgmpxx.so.4", "libmpfr.so.4"}
+        folder = Path(args.runtime_dir)
+        if {p.name for p in folder.iterdir() if p.is_file()} != expected:
+            raise ValueError("Unexpected Linux runtime library set")
+        for libname in sorted(expected):
+            data = (folder / libname).read_bytes()
+            check_architecture(data, args.target)
+            runtime_libs[libname] = data
+    elif args.target.startswith("windows-"):
+        if not args.runtime_dir:
+            raise ValueError("Windows candidate requires bundled UCRT64 DLLs")
+        folder = Path(args.runtime_dir)
+        files = sorted(p for p in folder.iterdir() if p.is_file())
+        names = {p.name.lower() for p in files}
+        if not files or len(files) > 30 or len(files) != len(names):
+            raise ValueError("Unexpected or duplicate Windows DLL set")
+        if any(not re.fullmatch(r"[a-z0-9_.+-]+\.dll", n) for n in names):
+            raise ValueError("Unexpected Windows library filename")
+        if not (any("gmp" in n and "gmpxx" not in n for n in names)
+                and any("gmpxx" in n for n in names)
+                and any("mpfr" in n for n in names)):
+            raise ValueError("Missing Windows GMP/GMPXX/MPFR shared libraries")
+        for p in files:
+            data = p.read_bytes()
+            check_architecture(data, args.target)
+            runtime_libs[p.name.lower()] = data
+    elif args.runtime_dir:
+        raise ValueError("macOS static candidate must not bundle runtime libraries")
     abi_report = Path(args.abi_report).read_bytes()
     abi = json.loads(abi_report)
     if abi.get("target") != args.target or abi.get("binary_sha256") != fingerprint(binary):
@@ -95,15 +137,21 @@ def package(args: argparse.Namespace) -> None:
         "platform": args.target,
         "executable_sha256": fingerprint(binary),
         "abi_report_sha256": fingerprint(abi_report),
-        "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "system-runtime",
+        "bundled_library_sha256": {name: fingerprint(data) for name, data in runtime_libs.items()},
+        "library_mode": ("static-gmp-mpfr" if args.target.startswith("macos")
+                         else ("bundled-clangarm64-dlls" if args.target.endswith("aarch64") else "bundled-ucrt64-dlls") if args.target.startswith("windows-")
+                         else "bundled-dynamic-gmp-mpfr"),
         "admission": "native-build-and-science-smoke-only",
     }
     files = {
-        "gpmc": (binary, True),
+        executable_name: (binary, True),
         "provenance.json": (json.dumps(provenance, indent=2, sort_keys=True).encode() + b"\n", False),
         "dependencies.txt": (dependencies, False),
         "abi-report.json": (abi_report, False),
     }
+    for libname, data in runtime_libs.items():
+        path = libname if args.target.startswith("windows-") else f"libs/{libname}"
+        files[path] = (data, False)
     for path in LICENSES:
         files[f"licenses/{path}"] = ((ROOT / path).read_bytes(), False)
 
@@ -125,6 +173,7 @@ def verify(args: argparse.Namespace) -> None:
     if args.target not in SUPPORTED:
         raise ValueError("Unsupported qualification target")
     filename = expected_name(args.version, args.target)
+    executable_name = "gpmc.exe" if args.target.startswith("windows-") else "gpmc"
     archive_path = Path(args.output_dir) / filename
     data = archive_path.read_bytes()
     checksum = (Path(args.output_dir) / f"{filename}.sha256").read_text(encoding="ascii").strip()
@@ -132,14 +181,33 @@ def verify(args: argparse.Namespace) -> None:
         raise ValueError("Archive checksum mismatch")
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         members = archive.getmembers()
-        allowed = {"gpmc", "provenance.json", "dependencies.txt", "abi-report.json"} | {f"licenses/{p}" for p in LICENSES}
+        allowed = {executable_name, "provenance.json", "dependencies.txt", "abi-report.json"} | {f"licenses/{p}" for p in LICENSES}
+        if args.target.startswith("linux-"):
+            allowed |= {"libs/libgmp.so.10", "libs/libgmpxx.so.4", "libs/libmpfr.so.4"}
+        elif args.target.startswith("windows-"):
+            names = {m.name for m in members if m.name.lower().endswith(".dll")}
+            if not names or len(names) > 30 or any(
+                not re.fullmatch(r"[a-zA-Z0-9_.+-]+\.dll", n, re.I) or "/" in n
+                for n in names
+            ):
+                raise ValueError("Unexpected Windows DLL names")
+            allowed |= names
         if len(members) != len(allowed) or {m.name for m in members} != allowed:
             raise ValueError("Release archive has an unexpected file set")
         if any(not m.isfile() for m in members):
             raise ValueError("Release archive contains non-regular files")
-        binary = archive.extractfile("gpmc").read()
+        binary = archive.extractfile(executable_name).read()
         metadata = json.loads(archive.extractfile("provenance.json").read())
         abi_report = archive.extractfile("abi-report.json").read()
+        runtime_libs = {
+            (member.name if args.target.startswith("windows-") else member.name.split("/", 1)[1]):
+            archive.extractfile(member).read()
+            for member in members
+            if (member.name.lower().endswith(".dll") if args.target.startswith("windows-")
+                else member.name.startswith("libs/"))
+        }
+    for libname, libdata in runtime_libs.items():
+        check_architecture(libdata, args.target)
     abi = json.loads(abi_report)
     if abi.get("target") != args.target or abi.get("binary_sha256") != fingerprint(binary):
         raise ValueError("Bundled ABI report does not match the executable")
@@ -153,21 +221,37 @@ def verify(args: argparse.Namespace) -> None:
         "platform": args.target,
         "executable_sha256": fingerprint(binary),
         "abi_report_sha256": fingerprint(abi_report),
-        "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "system-runtime",
+        "bundled_library_sha256": {name: fingerprint(data) for name, data in runtime_libs.items()},
+        "library_mode": ("static-gmp-mpfr" if args.target.startswith("macos")
+                         else ("bundled-clangarm64-dlls" if args.target.endswith("aarch64") else "bundled-ucrt64-dlls") if args.target.startswith("windows-")
+                         else "bundled-dynamic-gmp-mpfr"),
         "admission": "native-build-and-science-smoke-only",
     }:
         raise ValueError("Source/platform/executable provenance mismatch")
     check_architecture(binary, args.target)
     with tempfile.TemporaryDirectory() as directory:
         folder = Path(directory)
-        executable = folder / "gpmc"
+        executable = folder / executable_name
         executable.write_bytes(binary)
         executable.chmod(0o755)
+        if runtime_libs:
+            library_dir = folder if args.target.startswith("windows-") else folder / "libs"
+            library_dir.mkdir(exist_ok=True)
+            for libname, libdata in runtime_libs.items():
+                (library_dir / libname).write_bytes(libdata)
         cnf = folder / "one.cnf"
         cnf.write_text("p cnf 1 1\n1 0\n", encoding="ascii")
+        # Prove the archive runs without inherited Homebrew/LD search paths.
+        clean_env = {k: v for k, v in os.environ.items()
+                     if not k.startswith(("DYLD_", "LD_LIBRARY_PATH", "LD_PRELOAD"))}
+        if args.target.startswith("windows-"):
+            system_root = os.environ.get("SystemRoot", r"C:\Windows")
+            clean_env["PATH"] = os.pathsep.join((system_root + r"\System32", system_root))
+        else:
+            clean_env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         result = subprocess.run(
             [str(executable), "-mode=0", str(cnf)],
-            capture_output=True, text=True, timeout=30, check=True,
+            capture_output=True, text=True, timeout=30, check=True, env=clean_env,
         )
         if "c s exact arb int 1" not in result.stdout.splitlines():
             raise ValueError("Extracted release executable failed standalone model counting")
@@ -184,6 +268,7 @@ def main() -> None:
     parser.add_argument("--binary")
     parser.add_argument("--dependencies")
     parser.add_argument("--abi-report")
+    parser.add_argument("--runtime-dir")
     args = parser.parse_args()
     if args.action == "pack":
         if not args.binary or not args.dependencies or not args.abi_report:
