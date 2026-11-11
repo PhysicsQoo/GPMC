@@ -286,7 +286,9 @@ int main(int argc, char** argv)
 		// setUsageHelp("c USAGE: %s [options] <input-file> <result-output-file>\n\n  where input may be either in plain or gzipped DIMACS.\n");
 		// printf("This is MiniSat 2.0 beta\n");
 
-#if defined(__linux__)
+// x87 precision control exists on Linux x86 only. AArch64 has no x87
+// extended-precision control word; its double arithmetic is already binary64.
+#if defined(__linux__) && (defined(__i386__) || defined(__x86_64__))
 		fpu_control_t oldcw, newcw;
 		_FPU_GETCW(oldcw); newcw = (oldcw & ~_FPU_EXTENDED) | _FPU_DOUBLE; _FPU_SETCW(newcw);
 		printf("c o WARNING: for repeatability, setting FPU to use double precision\n");
