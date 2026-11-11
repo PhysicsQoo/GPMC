@@ -1,0 +1,166 @@
+name: Qualify native GPMC release artifacts
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/native-release.yml'
+      - '.github/scripts/native-release-bundle.py'
+  workflow_dispatch:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpmc-native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Native archive (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-ubuntu2404-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-ubuntu2404-aarch64
+          - os: macos-15
+            target: macos15-arm64
+          - os: macos-15-intel
+            target: macos15-x86_64
+
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install gmp mpfr zlib cmake ninja
+
+      - name: Build and qualify native executable
+        id: native
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
+            cmake -S . -B build-static -G Ninja -DCMAKE_BUILD_TYPE=Release -DGPMC_STATIC_BUILD=ON
+            cmake --build build-static --parallel 2
+            binary=build-static/gpmc
+            otool -L "$binary" > dependencies.txt
+            if grep -E '(libgmp|libgmpxx|libmpfr).*\.dylib' dependencies.txt; then
+              echo "Unexpected dynamic GMP/MPFR dependency" >&2
+              exit 1
+            fi
+          else
+            cmake --preset release
+            cmake --build --preset release --parallel 2
+            binary=build/gpmc
+            ldd "$binary" > dependencies.txt
+          fi
+          test -x "$binary"
+          bash .github/scripts/scientific-smoke.sh "$binary"
+          python3 .github/scripts/scientific_oracle.py "$binary"
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD > source-revision.txt
+
+      - name: Create and verify source-pinned archive
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+          RELEASE_TARGET: ${{ matrix.target }}
+          NATIVE_BINARY: ${{ steps.native.outputs.binary }}
+        run: |
+          set -euo pipefail
+          revision="$(cat source-revision.txt)"
+          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt
+          python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
+          printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
+
+      - name: Upload qualification archive and checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-qualification-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  prepare-draft:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source and verify master HEAD
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Ensure this exact tag targets current master
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || exit 2
+          git fetch origin master
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
+          test "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")" = "$(git rev-parse HEAD)"
+
+      - name: Download the four qualified archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: gpmc-qualification-*
+          merge-multiple: true
+          path: dist
+
+      - name: Validate exact release asset set and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          for target in linux-ubuntu2404-x86_64 linux-ubuntu2404-aarch64 macos15-arm64 macos15-x86_64; do
+            archive="gpmc-$GITHUB_REF_NAME-$target.tar.gz"
+            test -f "$archive"
+            test -f "$archive.sha256"
+            sha256sum -c "$archive.sha256"
+            test "$(tar -xzOf "$archive" provenance.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_commit"])')" = "$GITHUB_SHA"
+          done
+          test "$(find . -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 4
+          sha256sum gpmc-*.tar.gz > SHA256SUMS.txt
+
+      - name: Create unpublished release draft (human admission gate)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release already exists: refusing to overwrite assets" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/gpmc-*.tar.gz dist/SHA256SUMS.txt \
+            --verify-tag --draft --prerelease --latest=false \
+            --title "GPMC $GITHUB_REF_NAME native qualification" \
+            --notes "Unpublished validation draft. Native smoke and exact small-CNF oracles passed, but Linux Ubuntu 24.04 assets are NOT manylinux_2_28-qualified. Do not publish or consume from QuPRS until clean-target ABI/runtime and redistribution admission is complete."
