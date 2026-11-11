@@ -71,9 +71,10 @@ jobs:
             export CXXFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix mpfr)/include"
             export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix mpfr)/lib -L$(brew --prefix zlib)/lib"
           fi
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel 2
+          cmake --preset release
+          cmake --build --preset release --parallel 2
           test -x build/gpmc
+          bash .github/scripts/scientific-smoke.sh build/gpmc
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
@@ -89,9 +90,10 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --parallel 2
+          cmake --preset release
+          cmake --build --preset release --parallel 2
           test -x build/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build/gpmc.exe
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
