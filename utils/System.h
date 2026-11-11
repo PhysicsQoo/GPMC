@@ -63,9 +63,16 @@ inline double Glucose::cpuTime(void) {
 
 // added by nabesima
 //static inline double GlueMiniSat::realTime(void) {
+#if defined(_WIN32)
+#include <chrono>
+inline double Glucose::realTime(void) {
+    using namespace std::chrono;
+    return duration<double>(system_clock::now().time_since_epoch()).count(); }
+#else
 inline double Glucose::realTime(void) {
     struct timeval time;
     gettimeofday(&time, NULL);
     return time.tv_sec + time.tv_usec / 1000000.0; }
+#endif
 
 #endif
