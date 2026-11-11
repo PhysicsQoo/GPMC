@@ -81,6 +81,20 @@ def package(args: argparse.Namespace) -> None:
     binary = Path(args.binary).read_bytes()
     check_architecture(binary, args.target)
     dependencies = Path(args.dependencies).read_bytes()
+    runtime_libs = {}
+    if args.target.startswith("linux-"):
+        if not args.runtime_dir:
+            raise ValueError("Linux candidate requires bundled shared GMP/MPFR libraries")
+        expected = {"libgmp.so.10", "libgmpxx.so.4", "libmpfr.so.4"}
+        folder = Path(args.runtime_dir)
+        if {p.name for p in folder.iterdir() if p.is_file()} != expected:
+            raise ValueError("Unexpected Linux runtime library set")
+        for libname in sorted(expected):
+            data = (folder / libname).read_bytes()
+            check_architecture(data, args.target)
+            runtime_libs[libname] = data
+    elif args.runtime_dir:
+        raise ValueError("macOS static candidate must not bundle runtime libraries")
     abi_report = Path(args.abi_report).read_bytes()
     abi = json.loads(abi_report)
     if abi.get("target") != args.target or abi.get("binary_sha256") != fingerprint(binary):
@@ -95,7 +109,8 @@ def package(args: argparse.Namespace) -> None:
         "platform": args.target,
         "executable_sha256": fingerprint(binary),
         "abi_report_sha256": fingerprint(abi_report),
-        "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "system-runtime",
+        "bundled_library_sha256": {name: fingerprint(data) for name, data in runtime_libs.items()},
+        "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "bundled-dynamic-gmp-mpfr",
         "admission": "native-build-and-science-smoke-only",
     }
     files = {
@@ -104,6 +119,8 @@ def package(args: argparse.Namespace) -> None:
         "dependencies.txt": (dependencies, False),
         "abi-report.json": (abi_report, False),
     }
+    for libname, data in runtime_libs.items():
+        files[f"libs/{libname}"] = (data, False)
     for path in LICENSES:
         files[f"licenses/{path}"] = ((ROOT / path).read_bytes(), False)
 
@@ -133,6 +150,8 @@ def verify(args: argparse.Namespace) -> None:
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         members = archive.getmembers()
         allowed = {"gpmc", "provenance.json", "dependencies.txt", "abi-report.json"} | {f"licenses/{p}" for p in LICENSES}
+        if args.target.startswith("linux-"):
+            allowed |= {"libs/libgmp.so.10", "libs/libgmpxx.so.4", "libs/libmpfr.so.4"}
         if len(members) != len(allowed) or {m.name for m in members} != allowed:
             raise ValueError("Release archive has an unexpected file set")
         if any(not m.isfile() for m in members):
@@ -140,6 +159,12 @@ def verify(args: argparse.Namespace) -> None:
         binary = archive.extractfile("gpmc").read()
         metadata = json.loads(archive.extractfile("provenance.json").read())
         abi_report = archive.extractfile("abi-report.json").read()
+        runtime_libs = {
+            member.name.split("/", 1)[1]: archive.extractfile(member).read()
+            for member in members if member.name.startswith("libs/")
+        }
+    for libname, libdata in runtime_libs.items():
+        check_architecture(libdata, args.target)
     abi = json.loads(abi_report)
     if abi.get("target") != args.target or abi.get("binary_sha256") != fingerprint(binary):
         raise ValueError("Bundled ABI report does not match the executable")
@@ -153,7 +178,8 @@ def verify(args: argparse.Namespace) -> None:
         "platform": args.target,
         "executable_sha256": fingerprint(binary),
         "abi_report_sha256": fingerprint(abi_report),
-        "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "system-runtime",
+        "bundled_library_sha256": {name: fingerprint(data) for name, data in runtime_libs.items()},
+        "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "bundled-dynamic-gmp-mpfr",
         "admission": "native-build-and-science-smoke-only",
     }:
         raise ValueError("Source/platform/executable provenance mismatch")
@@ -163,11 +189,20 @@ def verify(args: argparse.Namespace) -> None:
         executable = folder / "gpmc"
         executable.write_bytes(binary)
         executable.chmod(0o755)
+        if runtime_libs:
+            library_dir = folder / "libs"
+            library_dir.mkdir()
+            for libname, libdata in runtime_libs.items():
+                (library_dir / libname).write_bytes(libdata)
         cnf = folder / "one.cnf"
         cnf.write_text("p cnf 1 1\n1 0\n", encoding="ascii")
+        # Prove the archive runs without inherited Homebrew/LD search paths.
+        clean_env = {k: v for k, v in os.environ.items()
+                     if not k.startswith(("DYLD_", "LD_LIBRARY_PATH", "LD_PRELOAD"))}
+        clean_env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         result = subprocess.run(
             [str(executable), "-mode=0", str(cnf)],
-            capture_output=True, text=True, timeout=30, check=True,
+            capture_output=True, text=True, timeout=30, check=True, env=clean_env,
         )
         if "c s exact arb int 1" not in result.stdout.splitlines():
             raise ValueError("Extracted release executable failed standalone model counting")
@@ -184,6 +219,7 @@ def main() -> None:
     parser.add_argument("--binary")
     parser.add_argument("--dependencies")
     parser.add_argument("--abi-report")
+    parser.add_argument("--runtime-dir")
     args = parser.parse_args()
     if args.action == "pack":
         if not args.binary or not args.dependencies or not args.abi_report:

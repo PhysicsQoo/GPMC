@@ -52,9 +52,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Do not install GMP/MPFR on host: portable bundle must supply them.
           sudo apt-get update
-          # Only needed for the extracted-binary host smoke after container build.
-          sudo apt-get install -y libgmp10 libgmpxx4ldbl libmpfr6 zlib1g
+          sudo apt-get install -y zlib1g
 
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -106,7 +106,9 @@ jobs:
         run: |
           set -euo pipefail
           revision="$(cat source-revision.txt)"
-          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json
+          runtime_args=()
+          if [[ "$RUNNER_OS" == "Linux" ]]; then runtime_args=(--runtime-dir build/libs); fi
+          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json "${runtime_args[@]}"
           python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
           printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
 
