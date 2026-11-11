@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
@@ -50,7 +50,7 @@ jobs:
 
       - name: Set up Windows UCRT64 toolchain and dependencies
         if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
         with:
           msystem: UCRT64
           update: true
@@ -68,12 +68,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            export CXXFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix mpfr)/include"
-            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix mpfr)/lib -L$(brew --prefix zlib)/lib"
+            export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
           fi
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-          cmake --build build --parallel 2
+          cmake --preset release
+          cmake --build --preset release --parallel 2
           test -x build/gpmc
+          bash .github/scripts/scientific-smoke.sh build/gpmc | tee build/scientific-smoke.out
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            python3 .github/scripts/scientific_oracle.py build/gpmc | tee build/independent-oracle.out
+          else
+            printf 'Linux-only independent exact Fraction oracle; native smoke ran here.\n' > build/independent-oracle.out
+          fi
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
@@ -83,23 +88,55 @@ jobs:
             sha256sum build/gpmc > build/gpmc.sha256
           fi
           git rev-parse HEAD > build/source-revision.txt
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            shasum -a 256 -c build/gpmc.sha256
+          else
+            sha256sum -c build/gpmc.sha256
+          fi
+          {
+            printf 'tested_checkout_sha=%s\n' "$(cat build/source-revision.txt)"
+            printf 'pr_head_sha=%s\n' '${{ github.event.pull_request.head.sha || github.sha }}'
+            printf 'base_sha=%s\n' '${{ github.event.pull_request.base.sha || github.sha }}'
+            printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"
+            cmake --version | sed -n '1p'
+            c++ --version | sed -n '1p'
+            if [[ "${{ runner.os }}" == "Linux" ]]; then
+              dpkg-query -W -f='${Package} ${Version}\n' libgmp-dev libmpfr-dev zlib1g-dev cmake ninja-build
+            else
+              brew list --versions gmp mpfr zlib cmake ninja
+            fi
+            grep -E '^GPMC_.*_(INCLUDE_DIR|LIBRARY):' build/CMakeCache.txt || true
+          } > build/build-provenance.txt
 
       - name: Configure, build and smoke (Windows UCRT64)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-          cmake --build build --parallel 2
+          cmake --preset release
+          cmake --build --preset release --parallel 2
           test -x build/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build/gpmc.exe | tee build/scientific-smoke.out
+          printf 'Linux-only independent exact Fraction oracle; native smoke ran here.\n' > build/independent-oracle.out
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
           sha256sum build/gpmc.exe > build/gpmc.sha256
           printf '%s\n' "$GITHUB_SHA" > build/source-revision.txt
+          sha256sum -c build/gpmc.sha256
+          {
+            printf 'tested_checkout_sha=%s\n' "$GITHUB_SHA"
+            printf 'pr_head_sha=%s\n' '${{ github.event.pull_request.head.sha || github.sha }}'
+            printf 'base_sha=%s\n' '${{ github.event.pull_request.base.sha || github.sha }}'
+            printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"
+            cmake --version | sed -n '1p'
+            c++ --version | sed -n '1p'
+            pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-gmp mingw-w64-ucrt-x86_64-mpfr mingw-w64-ucrt-x86_64-zlib
+            grep -E '^GPMC_.*_(INCLUDE_DIR|LIBRARY):' build/CMakeCache.txt || true
+          } > build/build-provenance.txt
 
       - name: Upload tested binary and provenance
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gpmc-${{ runner.os }}-${{ runner.arch }}
           path: |
@@ -107,4 +144,7 @@ jobs:
             build/gpmc.sha256
             build/source-revision.txt
             build/gpmc-smoke.out
+            build/scientific-smoke.out
+            build/independent-oracle.out
+            build/build-provenance.txt
           if-no-files-found: error

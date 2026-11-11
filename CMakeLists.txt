@@ -1,9 +1,10 @@
-cmake_minimum_required(VERSION 3.0)
-project(gpmc CXX)
+cmake_minimum_required(VERSION 3.20)
+project(gpmc LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 option(GPMC_STATIC_BUILD "build gpmc as a static execution file" off)
 
-link_directories(../.venv/lib ../downloads/gmp-6.3.0/lib)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src ../.venv/include ../downloads/gmp-6.3.0/ ../downloads/gmp-6.3.0/include)
 add_compile_options("$<$<CONFIG:Debug>:-O0>")
 add_compile_options(
     "$<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wall;-Wno-parentheses;-Wno-format;-Wno-sign-compare;-Wno-unused-variable;-Wno-unused-result>"
@@ -12,7 +13,23 @@ add_compile_options(
 )
 add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-literal-suffix;-Wno-class-memaccess>")
 add_compile_options("$<$<CXX_COMPILER_ID:Clang>:-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init>")
-add_compile_options("$<$<CXX_COMPILER_ID:AppleClang>:-Wno-redundant-move;-Wno-undefined-var-template;-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init;-std=c++11>")
+add_compile_options("$<$<CXX_COMPILER_ID:AppleClang>:-Wno-redundant-move;-Wno-undefined-var-template;-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init>")
+
+# Resolve native development packages explicitly, rather than silently searching
+# relative directories outside the source tree. CMAKE_PREFIX_PATH is supported.
+find_package(ZLIB REQUIRED)
+find_path(GPMC_GMP_INCLUDE_DIR NAMES gmp.h REQUIRED)
+find_path(GPMC_GMPXX_INCLUDE_DIR NAMES gmpxx.h REQUIRED)
+find_path(GPMC_MPFR_INCLUDE_DIR NAMES mpfr.h REQUIRED)
+find_library(GPMC_GMP_LIBRARY NAMES gmp REQUIRED)
+find_library(GPMC_GMPXX_LIBRARY NAMES gmpxx REQUIRED)
+find_library(GPMC_MPFR_LIBRARY NAMES mpfr REQUIRED)
+
+add_library(gpmc_native_deps INTERFACE)
+target_include_directories(gpmc_native_deps INTERFACE
+  "${GPMC_GMP_INCLUDE_DIR}" "${GPMC_GMPXX_INCLUDE_DIR}" "${GPMC_MPFR_INCLUDE_DIR}")
+target_link_libraries(gpmc_native_deps INTERFACE
+  "${GPMC_MPFR_LIBRARY}" "${GPMC_GMPXX_LIBRARY}" "${GPMC_GMP_LIBRARY}" ZLIB::ZLIB)
 
 add_subdirectory(flow-cutter-pace17)
 
@@ -26,13 +43,16 @@ add_library(gpmc STATIC
 	preprocessor/lib_sharpsat_td/subsumer.cpp
 	preprocessor/TreeDecomposition.cc preprocessor/IFlowCutter.cc
 	)
+target_include_directories(gpmc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src)
+target_link_libraries(gpmc PRIVATE gpmc_native_deps)
 target_compile_definitions(gpmc 
   PRIVATE $<$<CONFIG:Debug>:DEBUG>
            __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS
 )
 
 add_executable(gpmc-bin core/Main.cc)
+target_include_directories(gpmc-bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
-target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx 
+target_link_libraries(gpmc-bin PRIVATE gpmc flowcutter gpmc_native_deps 
     "$<$<AND:$<BOOL:${GPMC_STATIC_BUILD}>,$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>>:-static>"
 )
