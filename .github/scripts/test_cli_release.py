@@ -20,7 +20,7 @@ class CliArchiveTest(unittest.TestCase):
         binary = folder / "gpmc"
         # Fake but correctly identified x86_64 ELF header. The native
         # scientific tests run separately on actual compiled executables.
-        binary.write_bytes(b"\\x7fELF\\x02\\x01" + bytes(12) + struct.pack("<H", 62))
+        binary.write_bytes(b"\x7fELF\x02\x01" + bytes(12) + struct.pack("<H", 62))
         deps = folder / "deps"
         deps.write_text("libgmp.so.10, libmpfr.so.4", encoding="ascii")
         return SimpleNamespace(
