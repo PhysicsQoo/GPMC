@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# Avoid retaining expensive builds from superseded edits to the same PR.
+# Independent master pushes and manual runs remain non-cancelling.
+concurrency:
+  group: gpmc-build-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build and smoke (${{ matrix.os }})
