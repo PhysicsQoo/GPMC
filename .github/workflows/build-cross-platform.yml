@@ -68,13 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            export CXXFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix mpfr)/include"
-            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix mpfr)/lib -L$(brew --prefix zlib)/lib"
+            export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
           fi
           cmake --preset release
           cmake --build --preset release --parallel 2
           test -x build/gpmc
-          bash .github/scripts/scientific-smoke.sh build/gpmc
+          bash .github/scripts/scientific-smoke.sh build/gpmc | tee build/scientific-smoke.out
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
@@ -84,6 +83,19 @@ jobs:
             sha256sum build/gpmc > build/gpmc.sha256
           fi
           git rev-parse HEAD > build/source-revision.txt
+          shasum -a 256 -c build/gpmc.sha256 >/dev/null 2>&1 || { if [[ "${{ runner.os }}" == "Linux" ]]; then sha256sum -c build/gpmc.sha256; else exit 1; fi; }
+          {
+            printf 'source_commit=%s\n' "$(cat build/source-revision.txt)"
+            printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"
+            cmake --version | sed -n '1p'
+            c++ --version | sed -n '1p'
+            if [[ "${{ runner.os }}" == "Linux" ]]; then
+              dpkg-query -W -f='${Package} ${Version}\n' libgmp-dev libmpfr-dev zlib1g-dev cmake ninja-build
+            else
+              brew list --versions gmp mpfr zlib cmake ninja
+            fi
+            grep -E '^GPMC_.*_(INCLUDE_DIR|LIBRARY):' build/CMakeCache.txt || true
+          } > build/build-provenance.txt
 
       - name: Configure, build and smoke (Windows UCRT64)
         if: runner.os == 'Windows'
@@ -93,12 +105,21 @@ jobs:
           cmake --preset release
           cmake --build --preset release --parallel 2
           test -x build/gpmc.exe
-          bash .github/scripts/scientific-smoke.sh build/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build/gpmc.exe | tee build/scientific-smoke.out
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
           sha256sum build/gpmc.exe > build/gpmc.sha256
           printf '%s\n' "$GITHUB_SHA" > build/source-revision.txt
+          sha256sum -c build/gpmc.sha256
+          {
+            printf 'source_commit=%s\n' "$GITHUB_SHA"
+            printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"
+            cmake --version | sed -n '1p'
+            c++ --version | sed -n '1p'
+            pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-gmp mingw-w64-ucrt-x86_64-mpfr mingw-w64-ucrt-x86_64-zlib
+            grep -E '^GPMC_.*_(INCLUDE_DIR|LIBRARY):' build/CMakeCache.txt || true
+          } > build/build-provenance.txt
 
       - name: Upload tested binary and provenance
         uses: actions/upload-artifact@v4
@@ -109,4 +130,6 @@ jobs:
             build/gpmc.sha256
             build/source-revision.txt
             build/gpmc-smoke.out
+            build/scientific-smoke.out
+            build/build-provenance.txt
           if-no-files-found: error
