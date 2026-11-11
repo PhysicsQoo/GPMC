@@ -1,0 +1,83 @@
+name: Validate macOS bundled dylib experiment
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/macos-dylib-experiment.yml'
+      - '.github/scripts/macos-dylib-candidate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-dylib-experiment-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  compare-static-dynamic:
+    name: Bundled dylibs (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+
+    steps:
+      - name: Check out pinned source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up macOS development dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install gmp mpfr zlib cmake ninja
+
+      - name: Build both unchanged static and experimental dynamic variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
+          cmake -S . -B build-static-compare -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DGPMC_STATIC_BUILD=ON
+          cmake --build build-static-compare --parallel 2
+          cmake -S . -B build-dylib-compare -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DGPMC_STATIC_BUILD=OFF
+          cmake --build build-dylib-compare --parallel 2
+          test -x build-static-compare/gpmc
+          test -x build-dylib-compare/gpmc
+          bash .github/scripts/scientific-smoke.sh build-static-compare/gpmc
+          bash .github/scripts/scientific-smoke.sh build-dylib-compare/gpmc
+          python3 .github/scripts/scientific_oracle.py build-static-compare/gpmc
+          python3 .github/scripts/scientific_oracle.py build-dylib-compare/gpmc
+
+      - name: Produce and qualify relocated dylib candidate without Homebrew runtime
+        shell: bash
+        env:
+          NATIVE_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          python3 .github/scripts/macos-dylib-candidate.py bundle \
+            --arch "$NATIVE_ARCH" --source-sha "$revision" \
+            --binary build-dylib-compare/gpmc \
+            --gmp-prefix "$(brew --prefix gmp)" \
+            --mpfr-prefix "$(brew --prefix mpfr)"
+          python3 .github/scripts/macos-dylib-candidate.py verify \
+            --arch "$NATIVE_ARCH" --source-sha "$revision"
+
+      - name: Store non-published candidate and SHA-256
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-macos-dylib-experiment-${{ matrix.arch }}
+          path: dist/dylib-experiment/*
+          if-no-files-found: error
+          retention-days: 14
