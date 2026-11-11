@@ -366,7 +366,7 @@ jobs:
 
   prepare-draft:
     # Exercise the exact tag manifest pipeline on PRs without ever publishing.
-    # The final gh release create step remains tag-only.
+    # Only the separate tag-only create-draft job can write a private Release.
     needs: [qualify, windows-archive, windows-arm64-archive]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
