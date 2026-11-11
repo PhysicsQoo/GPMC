@@ -39,6 +39,12 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def canonical_notice(data: bytes) -> bytes:
+    # Windows git checkouts can convert line endings in notice files.
+    # The official release archive always carries the same LF-normalized text.
+    return data.replace(b"\r\n", b"\n")
+
+
 def archive_name(version: str, target: str) -> str:
     if not re.fullmatch(r"candidate|v[0-9]+\.[0-9]+\.[0-9]+", version):
         raise ValueError("Invalid CLI release version")
@@ -129,7 +135,7 @@ def package(args: argparse.Namespace) -> None:
         "dependencies.txt": deps,
     }
     for rel in LICENSES:
-        items["licenses/" + rel] = (ROOT / rel).read_bytes()
+        items["licenses/" + rel] = canonical_notice((ROOT / rel).read_bytes())
     assert set(items) == expected_members(args.target)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -174,7 +180,7 @@ def verify(args: argparse.Namespace) -> None:
         ):
             raise ValueError("CLI provenance mismatch")
         for rel in LICENSES:
-            if data["licenses/" + rel] != (ROOT / rel).read_bytes():
+            if data["licenses/" + rel] != canonical_notice((ROOT / rel).read_bytes()):
                 raise ValueError("CLI license file mismatch")
         if data["README-CLI.txt"] != usage(args.target):
             raise ValueError("CLI installation guidance mismatch")
