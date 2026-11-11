@@ -21,8 +21,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SUPPORTED = {
-    "linux-ubuntu2404-x86_64": ("elf", 62),
-    "linux-ubuntu2404-aarch64": ("elf", 183),
+    "linux-almalinux8-x86_64": ("elf", 62),
+    "linux-almalinux8-aarch64": ("elf", 183),
     "macos15-arm64": ("macho", 0x0100000C),
     "macos15-x86_64": ("macho", 0x01000007),
 }
