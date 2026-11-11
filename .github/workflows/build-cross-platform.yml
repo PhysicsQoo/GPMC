@@ -74,6 +74,18 @@ jobs:
           cmake --build --preset release --parallel 2
           test -x build/gpmc
           bash .github/scripts/scientific-smoke.sh build/gpmc | tee build/scientific-smoke.out
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            # QuPRS packaging uses the static-dependency option on macOS.
+            cmake -S . -B build-static -G Ninja -DCMAKE_BUILD_TYPE=Release -DGPMC_STATIC_BUILD=ON
+            cmake --build build-static --parallel 2
+            test -x build-static/gpmc
+            bash .github/scripts/scientific-smoke.sh build-static/gpmc | tee build-static/scientific-smoke.out
+            otool -L build-static/gpmc | tee build-static/dynamic-dependencies.out
+            if grep -E '(libgmp|libgmpxx|libmpfr).*\\.dylib' build-static/dynamic-dependencies.out; then
+              echo "GPMC_STATIC_BUILD unexpectedly depends on dynamic GMP/MPFR" >&2
+              exit 1
+            fi
+          fi
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             python3 .github/scripts/scientific_oracle.py build/gpmc | tee build/independent-oracle.out
           else
