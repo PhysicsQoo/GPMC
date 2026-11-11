@@ -8,6 +8,7 @@ on:
       - '.github/scripts/native-release-bundle.py'
       - '.github/scripts/native-abi-audit.py'
       - '.github/scripts/build-linux-candidate.sh'
+      - '.github/scripts/windows-runtime-audit.py'
   workflow_dispatch:
   push:
     tags: ['v[0-9]*']
@@ -123,9 +124,76 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  windows-archive:
+    name: Native archive (windows-ucrt64-x86_64)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Windows UCRT64 toolchain
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-gmp
+            mingw-w64-ucrt-x86_64-mpfr
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-binutils
+
+      - name: Build, audit DLL closure and package Windows candidate
+        shell: msys2 {0}
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          set -euo pipefail
+          cmake --preset release
+          cmake --build --preset release --parallel 2
+          test -x build/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build/gpmc.exe
+          python .github/scripts/scientific_oracle.py build/gpmc.exe
+          python .github/scripts/windows-runtime-audit.py --binary build/gpmc.exe --runtime-dir build/windows-runtime --output abi-report.json --dependencies dependencies.txt
+          pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gmp mingw-w64-ucrt-x86_64-mpfr mingw-w64-ucrt-x86_64-zlib >> dependencies.txt
+          git rev-parse HEAD > source-revision.txt
+          revision="$(cat source-revision.txt)"
+          python .github/scripts/native-release-bundle.py pack --target windows-ucrt64-x86_64 --version "$RELEASE_VERSION" --source-sha "$revision" --binary build/gpmc.exe --runtime-dir build/windows-runtime --dependencies dependencies.txt --abi-report abi-report.json
+
+      - name: Set up independent native Windows Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify extracted archive using native Windows loader without MSYS2 PATH
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $revision = (Get-Content source-revision.txt).Trim()
+          python .github/scripts/native-release-bundle.py verify --target windows-ucrt64-x86_64 --version "$env:RELEASE_VERSION" --source-sha "$revision"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows binary, runtime DLLs and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-qualification-windows-ucrt64-x86_64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+
   prepare-draft:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: qualify
+    needs: [qualify, windows-archive]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -146,7 +214,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
           test "$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")" = "$(git rev-parse HEAD)"
 
-      - name: Download the four qualified archives
+      - name: Download the five qualified archives
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: gpmc-qualification-*
@@ -158,14 +226,14 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64; do
+          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64; do
             archive="gpmc-$GITHUB_REF_NAME-$target.tar.gz"
             test -f "$archive"
             test -f "$archive.sha256"
             sha256sum -c "$archive.sha256"
             test "$(tar -xzOf "$archive" provenance.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_commit"])')" = "$GITHUB_SHA"
           done
-          test "$(find . -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 4
+          test "$(find . -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 5
           sha256sum gpmc-*.tar.gz > SHA256SUMS.txt
 
       - name: Create unpublished release draft (human admission gate)
