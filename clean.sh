@@ -1,4 +1,1 @@
-#!/bin/sh
-
-rm -rf build
-rm -rf bin
+#/bin/sh
