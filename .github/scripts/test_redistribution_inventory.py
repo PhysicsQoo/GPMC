@@ -137,6 +137,30 @@ class RedistributionInventoryContract(unittest.TestCase):
         self.assertIn("sha256sum gpmc-*.tar.gz", prepare)
         self.assertIn("--draft --prerelease --latest=false", prepare)
 
+    def test_pr_validates_release_manifest_without_creating_draft(self):
+        workflow = (SCRIPT.parent.parent / "workflows" /
+                    "native-release.yml").read_text(encoding="utf-8")
+        prepare = workflow.split("  prepare-draft:", 1)[1]
+        self.assertNotIn(
+            "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')\\n    needs:",
+            prepare,
+        )
+        self.assertIn("RELEASE_ASSET_MANIFEST_PREFLIGHT_PASS", prepare)
+        self.assertIn(
+            "RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}",
+            prepare,
+        )
+        self.assertIn(
+            "SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
+            prepare,
+        )
+        self.assertIn(
+            "      - name: Create unpublished release draft (human admission gate)\\n"
+            "        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+            prepare,
+        )
+        self.assertIn("gh release create", prepare)
+
     def test_windows_release_source_tracks_checkout_head(self):
         # GITHUB_SHA on a pull_request job is GitHub's synthetic merge SHA.
         # Producer archives must reference the pinned checkout identity.

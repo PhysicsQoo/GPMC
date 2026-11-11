@@ -365,20 +365,23 @@ jobs:
           retention-days: 14
 
   prepare-draft:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # Exercise the exact tag manifest pipeline on PRs without ever publishing.
+    # The final gh release create step remains tag-only.
     needs: [qualify, windows-archive, windows-arm64-archive]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - name: Check out tagged source and verify master HEAD
+      - name: Check out exact candidate or tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Ensure this exact tag targets current master
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -396,27 +399,32 @@ jobs:
 
       - name: Validate exact release asset set and checksums
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'candidate' }}
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           # Keep the checkout as cwd. The inventory validator resides in
           # .github/scripts, while downloaded assets live under dist/.
           for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
-            archive="dist/gpmc-$GITHUB_REF_NAME-$target.tar.gz"
+            archive="dist/gpmc-$RELEASE_VERSION-$target.tar.gz"
             test -f "$archive"
             test -f "$archive.sha256"
             (cd dist && sha256sum -c "$(basename "$archive").sha256")
             test -f "$archive.redistribution.json"
             python3 .github/scripts/redistribution-inventory.py --archive "$archive" \
-              --target "$target" --source-sha "$GITHUB_SHA" \
+              --target "$target" --source-sha "$SOURCE_SHA" \
               --output "$archive.redistribution.json"
-            test "$(tar -xzOf "$archive" provenance.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_commit"])')" = "$GITHUB_SHA"
+            test "$(tar -xzOf "$archive" provenance.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_commit"])')" = "$SOURCE_SHA"
           done
           test "$(find dist -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 6
           # Reject any unexpected extra tarballs or inventory sidecars.
           test "$(find dist -maxdepth 1 -name '*.redistribution.json' -type f | wc -l)" -eq 6
           (cd dist && sha256sum gpmc-*.tar.gz gpmc-*.redistribution.json > SHA256SUMS.txt)
+          echo "RELEASE_ASSET_MANIFEST_PREFLIGHT_PASS version=$RELEASE_VERSION source=$SOURCE_SHA"
 
       - name: Create unpublished release draft (human admission gate)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
