@@ -34,6 +34,7 @@ target_compile_definitions(gpmc
 )
 
 add_executable(gpmc-bin core/Main.cc)
+target_include_directories(gpmc-bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
 target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx 
     "$<$<AND:$<BOOL:${GPMC_STATIC_BUILD}>,$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>>:-static>"
