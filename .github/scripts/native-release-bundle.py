@@ -110,7 +110,7 @@ def package(args: argparse.Namespace) -> None:
         names = {p.name.lower() for p in files}
         if not files or len(files) > 30 or len(files) != len(names):
             raise ValueError("Unexpected or duplicate Windows DLL set")
-        if any(not re.fullmatch(r"[a-z0-9_.+-]+\\.dll", n) for n in names):
+        if any(not re.fullmatch(r"[a-z0-9_.+-]+\.dll", n) for n in names):
             raise ValueError("Unexpected Windows library filename")
         if not (any("gmp" in n and "gmpxx" not in n for n in names)
                 and any("gmpxx" in n for n in names)
@@ -186,7 +186,7 @@ def verify(args: argparse.Namespace) -> None:
         elif args.target.startswith("windows-"):
             names = {m.name for m in members if m.name.lower().endswith(".dll")}
             if not names or len(names) > 30 or any(
-                not re.fullmatch(r"[a-zA-Z0-9_.+-]+\\.dll", n, re.I) or "/" in n
+                not re.fullmatch(r"[a-zA-Z0-9_.+-]+\.dll", n, re.I) or "/" in n
                 for n in names
             ):
                 raise ValueError("Unexpected Windows DLL names")
@@ -244,8 +244,8 @@ def verify(args: argparse.Namespace) -> None:
         clean_env = {k: v for k, v in os.environ.items()
                      if not k.startswith(("DYLD_", "LD_LIBRARY_PATH", "LD_PRELOAD"))}
         if args.target.startswith("windows-"):
-            system_root = os.environ.get("SystemRoot", r"C:\\Windows")
-            clean_env["PATH"] = os.pathsep.join((system_root + r"\\System32", system_root))
+            system_root = os.environ.get("SystemRoot", r"C:\Windows")
+            clean_env["PATH"] = os.pathsep.join((system_root + r"\System32", system_root))
         else:
             clean_env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         result = subprocess.run(
