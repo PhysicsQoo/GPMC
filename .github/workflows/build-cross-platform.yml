@@ -74,6 +74,11 @@ jobs:
           cmake --build --preset release --parallel 2
           test -x build/gpmc
           bash .github/scripts/scientific-smoke.sh build/gpmc | tee build/scientific-smoke.out
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            python3 .github/scripts/scientific_oracle.py build/gpmc | tee build/independent-oracle.out
+          else
+            printf 'Linux-only independent exact Fraction oracle; native smoke ran here.\n' > build/independent-oracle.out
+          fi
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
@@ -110,6 +115,7 @@ jobs:
           cmake --build --preset release --parallel 2
           test -x build/gpmc.exe
           bash .github/scripts/scientific-smoke.sh build/gpmc.exe | tee build/scientific-smoke.out
+          printf 'Linux-only independent exact Fraction oracle; native smoke ran here.\n' > build/independent-oracle.out
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
@@ -135,5 +141,6 @@ jobs:
             build/source-revision.txt
             build/gpmc-smoke.out
             build/scientific-smoke.out
+            build/independent-oracle.out
             build/build-provenance.txt
           if-no-files-found: error
