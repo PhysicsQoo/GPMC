@@ -15,7 +15,8 @@ permissions:
 
 concurrency:
   group: gpmc-native-release-${{ github.ref }}
-  cancel-in-progress: false
+  # Drop superseded PR validation only; never cancel a tag publication run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   qualify:
