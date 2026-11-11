@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Collect and audit UCRT64 non-system DLL closure for a native Windows candidate.
+"""Collect/audit UCRT64 x64 or CLANGARM64 Windows native DLL closure.
 
-Run with the UCRT64 toolchain on Windows. The result is not approval for
-redistribution: corresponding LGPL/runtime sources and notices are separate.
+The source compiler's architecture and every bundled PE DLL are verified.
+This is candidate qualification, not LGPL redistribution admission.
 """
 from __future__ import annotations
 
@@ -28,13 +28,16 @@ WIN32_SYSTEM = frozenset({
 })
 
 
-def pe_x64(data: bytes) -> bool:
+PE_MACHINES = {"x86_64": 0x8664, "aarch64": 0xAA64}
+
+
+def pe_arch_matches(data: bytes, arch: str) -> bool:
     if len(data) < 0x40 or data[:2] != b"MZ":
         return False
     pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
     return (0 < pe_offset <= len(data) - 6
             and data[pe_offset:pe_offset + 4] == b"PE\x00\x00"
-            and struct.unpack_from("<H", data, pe_offset + 4)[0] == 0x8664)
+            and struct.unpack_from("<H", data, pe_offset + 4)[0] == PE_MACHINES[arch])
 
 
 def imports(path: Path) -> set[str]:
@@ -55,6 +58,7 @@ def is_windows_dll(name: str) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--arch", choices=sorted(PE_MACHINES), default="x86_64")
     parser.add_argument("--binary", required=True)
     parser.add_argument("--runtime-dir", required=True)
     parser.add_argument("--output", required=True)
@@ -62,12 +66,12 @@ def main() -> None:
     args = parser.parse_args()
 
     binary = Path(args.binary).resolve()
-    if not pe_x64(binary.read_bytes()):
-        raise ValueError("Expected PE x86_64 native executable")
-    gcc = shutil.which("gcc")
-    if not gcc:
-        raise ValueError("UCRT64 GCC not found")
-    toolchain_bin = Path(gcc).resolve().parent
+    if not pe_arch_matches(binary.read_bytes(), args.arch):
+        raise ValueError(f"Expected PE native {args.arch} executable")
+    compiler = shutil.which("clang++" if args.arch == "aarch64" else "gcc")
+    if not compiler:
+        raise ValueError("Required native Windows compiler not found")
+    toolchain_bin = Path(compiler).resolve().parent
     if toolchain_bin.name.lower() != "bin":
         raise ValueError("Unexpected compiler location")
     target = Path(args.runtime_dir)
@@ -90,8 +94,8 @@ def main() -> None:
             dll = toolchain_bin / name
             if dll.is_file():
                 data = dll.read_bytes()
-                if not pe_x64(data):
-                    raise ValueError(f"Non-x86_64 DLL: {name}")
+                if not pe_arch_matches(data, args.arch):
+                    raise ValueError(f"Incorrect PE DLL architecture for {args.arch}: {name}")
                 bundled[name] = data
                 queue.append(dll)
             elif is_windows_dll(name):
@@ -112,12 +116,12 @@ def main() -> None:
     hashes = {k: hashlib.sha256(v).hexdigest() for k, v in sorted(bundled.items())}
     report = {
         "schema": 1,
-        "target": "windows-ucrt64-x86_64",
+        "target": "windows-clangarm64-aarch64" if args.arch == "aarch64" else "windows-ucrt64-x86_64",
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
         "assessment": {
             "format": "PE32+",
-            "machine": "x86_64",
-            "runtime": "UCRT64",
+            "machine": args.arch,
+            "runtime": "CLANGARM64" if args.arch == "aarch64" else "UCRT64",
             "bundled_dll_sha256": hashes,
             "system_dlls": sorted(system),
             "windows_clean_install_certified": False,
@@ -129,7 +133,7 @@ def main() -> None:
         json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     Path(args.dependencies).write_text(
-        "Bundled UCRT64 DLLs:\n" +
+        f"Bundled {args.arch} runtime DLLs:\n" +
         "".join(f"{name} sha256={digest}\n" for name, digest in hashes.items()) +
         "System DLLs:\n" + "".join(f"{name}\n" for name in sorted(system)),
         encoding="utf-8",
