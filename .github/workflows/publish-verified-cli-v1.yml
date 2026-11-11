@@ -1,0 +1,124 @@
+name: Publish verified PhysicsQoo GPMC v1.0.0 CLI
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/publish-verified-cli-v1.yml'
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    # On PRs, test only the read-only artifact checks; never publish a tag.
+    if: "github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'fix(release): publish verified GPMC v1.0.0 CLI'))"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the exact six-platform-qualified release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 54d76042df6bfcf4366a8c8a6d689753618a3148
+          persist-credentials: false
+
+      - name: Download immutable six-platform CLI artifacts from successful qualification
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 43118725867
+          github-token: ${{ github.token }}
+          pattern: gpmc-cli-*
+          merge-multiple: true
+          path: dist-cli
+
+      - name: Verify all original executable bytes, notices, source and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha=54d76042df6bfcf4366a8c8a6d689753618a3148
+          test "$(git rev-parse HEAD)" = "$release_sha"
+          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
+            python3 .github/scripts/cli-release.py verify \
+              --version v1.0.0 --target "$target" --source-sha "$release_sha"
+          done
+          test "$(find dist-cli -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 6
+          test "$(find dist-cli -maxdepth 1 -type f -name '*.sha256' | wc -l)" -eq 6
+          (cd dist-cli && sha256sum -c *.sha256)
+          echo "VERIFIED_V1_CLI_ORIGINAL_ASSETS_PASS source=$release_sha"
+
+  publish:
+    # This job runs once on the exact approved publication merge commit.
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'fix(release): publish verified GPMC v1.0.0 CLI')"
+    needs: [verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out exact release source and notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 54d76042df6bfcf4366a8c8a6d689753618a3148
+          persist-credentials: false
+
+      - name: Reuse the six originally qualified CLI archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: 43118725867
+          github-token: ${{ github.token }}
+          pattern: gpmc-cli-*
+          merge-multiple: true
+          path: dist-cli
+
+      - name: Validate and assemble exact release checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha=54d76042df6bfcf4366a8c8a6d689753618a3148
+          test "$(git rev-parse HEAD)" = "$release_sha"
+          for target in linux-almalinux8-x86_64 linux-almalinux8-aarch64 macos15-arm64 macos15-x86_64 windows-ucrt64-x86_64 windows-clangarm64-aarch64; do
+            python3 .github/scripts/cli-release.py verify \
+              --version v1.0.0 --target "$target" --source-sha "$release_sha"
+          done
+          test "$(find dist-cli -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 6
+          (cd dist-cli && sha256sum -c *.sha256)
+          (cd dist-cli && sha256sum gpmc-cli-v1.0.0-*.tar.gz > SHA256SUMS.txt)
+          echo "RELEASE_V1_CLI_ASSETS_PASS source=$release_sha"
+
+      - name: Publish stable v1.0.0 Release on the original source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha=54d76042df6bfcf4366a8c8a6d689753618a3148
+          if gh release view v1.0.0 >/dev/null 2>&1; then
+            echo 'Refusing to overwrite an existing v1.0.0 Release' >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" > "$RUNNER_TEMP/existing-tag.json" 2>/dev/null; then
+            tag_sha="$(jq -r .object.sha "$RUNNER_TEMP/existing-tag.json")"
+            test "$tag_sha" = "$release_sha"
+            gh release create v1.0.0 dist-cli/gpmc-cli-v1.0.0-*.tar.gz dist-cli/SHA256SUMS.txt \
+              --verify-tag --title "GPMC v1.0.0 — PhysicsQoo CLI" \
+              --notes-file docs/CLI-RELEASE-v1.0.0.md
+          else
+            # Let gh release create atomically create the tag pointing to the
+            # exact previously qualified commit; do not mask API errors.
+            gh release create v1.0.0 dist-cli/gpmc-cli-v1.0.0-*.tar.gz dist-cli/SHA256SUMS.txt \
+              --target "$release_sha" --title "GPMC v1.0.0 — PhysicsQoo CLI" \
+              --notes-file docs/CLI-RELEASE-v1.0.0.md
+          fi
+          test "$(gh release view v1.0.0 --json isDraft --jq .isDraft)" = false
+          test "$(gh release view v1.0.0 --json isPrerelease --jq .isPrerelease)" = false
+          test "$(gh release view v1.0.0 --json assets --jq '.assets | length')" -eq 7
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" --jq '.object.sha')" = "$release_sha"
+          gh release view v1.0.0 --json tagName,isDraft,isPrerelease,assets \
+            --jq '{tag:.tagName,draft:.isDraft,prerelease:.isPrerelease,assets:[.assets[].name]}'
