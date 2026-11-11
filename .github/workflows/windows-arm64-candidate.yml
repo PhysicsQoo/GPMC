@@ -33,7 +33,9 @@ jobs:
         uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
         with:
           msystem: CLANGARM64
-          update: true
+          # Avoid a full MSYS2 system upgrade on an ephemeral ARM runner.
+          # Required CLANGARM64 packages remain explicitly installed.
+          update: false
           install: >-
             mingw-w64-clang-aarch64-clang
             mingw-w64-clang-aarch64-cmake
