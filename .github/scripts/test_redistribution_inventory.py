@@ -172,6 +172,7 @@ class RedistributionInventoryContract(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('"distribution_admitted": False,', producer)
+        self.assertGreaterEqual(producer.count('"distribution_admitted": False,'), 2)
         self.assertIn('"admission": "native-build-and-science-smoke-only",', producer)
 
     def test_build_workflow_pins_pr_checkout_and_provenance(self):
