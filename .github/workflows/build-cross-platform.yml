@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
@@ -50,7 +50,7 @@ jobs:
 
       - name: Set up Windows UCRT64 toolchain and dependencies
         if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
         with:
           msystem: UCRT64
           update: true
@@ -136,7 +136,7 @@ jobs:
           } > build/build-provenance.txt
 
       - name: Upload tested binary and provenance
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: gpmc-${{ runner.os }}-${{ runner.arch }}
           path: |
