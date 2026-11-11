@@ -142,7 +142,7 @@ class RedistributionInventoryContract(unittest.TestCase):
                     "native-release.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-draft:", 1)[1]
         self.assertNotIn(
-            "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')\\n    needs:",
+            "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')\n    needs:",
             prepare,
         )
         self.assertIn("RELEASE_ASSET_MANIFEST_PREFLIGHT_PASS", prepare)
@@ -155,7 +155,7 @@ class RedistributionInventoryContract(unittest.TestCase):
             prepare,
         )
         self.assertIn(
-            "      - name: Create unpublished release draft (human admission gate)\\n"
+            "      - name: Create unpublished release draft (human admission gate)\n"
             "        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
             prepare,
         )
