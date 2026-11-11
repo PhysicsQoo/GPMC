@@ -38,7 +38,8 @@ GitHub's synthetic merge revision; the manifest records its SHA as well as
 the PR head and base SHAs for unambiguous source provenance. These attest the
 tested binary and its source, but do **not** certify bit-identical rebuilds:
 packages, toolchains, and runner images are not all locked to immutable
-content digests.
+content digests. The checkout, MSYS2 setup, and artifact-upload Actions
+are pinned to full commit SHAs rather than mutable major-version tags.
 
 The native scientific tests cover integer MC/PMC, complex WMC/WPMC,
 model cancellation, projected complex weights, and a decimal precision
