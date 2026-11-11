@@ -52,7 +52,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$MSYSTEM" = "CLANGARM64"
-          test "$(uname -m)" = "aarch64"
+          # MSYS2 bash may itself run under x64 emulation on Windows ARM.
+          # PE Machine=0xAA64 is independently checked for the EXE and DLLs.
           cmake -S . -B build-arm -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build-arm --parallel 2
           test -x build-arm/gpmc.exe
