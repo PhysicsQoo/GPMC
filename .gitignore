@@ -1,4 +1,6 @@
 build/
+build-debug/
+build-static/
 clean
 .vscode/c_cpp_properties.json
 .vscode/settings.json
