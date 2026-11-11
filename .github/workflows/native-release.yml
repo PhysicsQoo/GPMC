@@ -196,7 +196,7 @@ jobs:
       - name: Package system-dependency CLI executable
         shell: bash
         env:
-          CLI_VERSION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
           CLI_TARGET: ${{ matrix.target }}
           NATIVE_BINARY: ${{ steps.native.outputs.binary }}
         run: |
@@ -299,7 +299,7 @@ jobs:
       - name: Package Windows x64 system-dependency CLI
         shell: msys2 {0}
         env:
-          CLI_VERSION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
         run: |
           set -euo pipefail
           python .github/scripts/cli-release.py pack \
@@ -434,7 +434,7 @@ jobs:
       - name: Package Windows ARM64 system-dependency CLI
         shell: msys2 {0}
         env:
-          CLI_VERSION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
         run: |
           set -euo pipefail
           python .github/scripts/cli-release.py pack \
@@ -584,7 +584,7 @@ jobs:
       - name: Verify executable architecture, provenance, licenses and checksums
         shell: bash
         env:
-          CLI_VERSION: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}
+          CLI_VERSION: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') && 'v1.0.0' || 'candidate' }}"
           SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
@@ -601,7 +601,7 @@ jobs:
   publish-cli-v1:
     # One-shot public release after six-platform qualification on exact master.
     # A tag created with GITHUB_TOKEN does not fire another push workflow.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI')
+    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: ship GPMC v1.0.0 CLI') }}"
     needs: [prepare-cli]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
