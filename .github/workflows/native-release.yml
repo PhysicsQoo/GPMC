@@ -9,6 +9,7 @@ on:
       - '.github/scripts/native-abi-audit.py'
       - '.github/scripts/build-linux-candidate.sh'
       - '.github/scripts/windows-runtime-audit.py'
+      - '.github/scripts/macos-dylib-candidate.py'
   workflow_dispatch:
   push:
     tags: ['v[0-9]*']
@@ -71,14 +72,13 @@ jobs:
           set -euo pipefail
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
-            cmake -S . -B build-static -G Ninja -DCMAKE_BUILD_TYPE=Release -DGPMC_STATIC_BUILD=ON
-            cmake --build build-static --parallel 2
-            binary=build-static/gpmc
+            # Production candidate: replaceable GNU GMP/MPFR dylibs are
+            # packaged below with @loader_path references; the existing static
+            # native mode remains available as a documented fallback.
+            cmake -S . -B build-macos-dylib -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DGPMC_STATIC_BUILD=OFF
+            cmake --build build-macos-dylib --parallel 2
+            binary=build-macos-dylib/gpmc
             otool -L "$binary" > dependencies.txt
-            if grep -E '(libgmp|libgmpxx|libmpfr).*\.dylib' dependencies.txt; then
-              echo "Unexpected dynamic GMP/MPFR dependency" >&2
-              exit 1
-            fi
           else
             image="${{ matrix.image }}"
             docker pull "$image"
@@ -91,10 +91,13 @@ jobs:
           test -x "$binary"
           bash .github/scripts/scientific-smoke.sh "$binary"
           python3 .github/scripts/scientific_oracle.py "$binary"
-          python3 .github/scripts/native-abi-audit.py --binary "$binary" --target "${{ matrix.target }}" --output abi-report.json
           if [[ "$RUNNER_OS" == "Linux" ]]; then
+            python3 .github/scripts/native-abi-audit.py --binary "$binary" --target "${{ matrix.target }}" --output abi-report.json
             python3 -c 'import json; p=json.load(open("abi-report.json"))["assessment"]; assert p["glibc_2_28_symbol_floor_pass"], p'
           fi
+          # On macOS, install_name_tool changes Mach-O contents and re-signs
+          # the relocated bundle; the macOS packaging step audits the final
+          # staged executable rather than the original build output.
           echo "binary=$binary" >> "$GITHUB_OUTPUT"
           git rev-parse HEAD > source-revision.txt
 
@@ -109,11 +112,18 @@ jobs:
           revision="$(cat source-revision.txt)"
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json --runtime-dir build/libs
+            python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
           else
-            # macOS system bash 3.2 + nounset rejects expansion of an empty array.
-            python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json
+            # Native macOS candidate: bundle relocatable, replaceable dylibs.
+            # Both the signed executable and all libraries are hashed at rest.
+            python3 .github/scripts/macos-dylib-candidate.py bundle \
+              --arch "$(uname -m)" --version "$RELEASE_VERSION" --source-sha "$revision" \
+              --binary "$NATIVE_BINARY" \
+              --gmp-prefix "$(brew --prefix gmp)" \
+              --mpfr-prefix "$(brew --prefix mpfr)"
+            python3 .github/scripts/macos-dylib-candidate.py verify \
+              --arch "$(uname -m)" --version "$RELEASE_VERSION" --source-sha "$revision"
           fi
-          python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
           printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
 
       - name: Upload qualification archive and checksum
