@@ -163,8 +163,10 @@ jobs:
           python .github/scripts/scientific_oracle.py build/gpmc.exe
           python .github/scripts/windows-runtime-audit.py --binary build/gpmc.exe --runtime-dir build/windows-runtime --output abi-report.json --dependencies dependencies.txt
           pacman -Q mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-gmp mingw-w64-ucrt-x86_64-mpfr mingw-w64-ucrt-x86_64-zlib >> dependencies.txt
-          git rev-parse HEAD > source-revision.txt
-          revision="$(cat source-revision.txt)"
+          # The PR checkout is the exact source that GitHub Actions supplies.
+          # MSYS2 UCRT64's minimal PATH need not contain Git.
+          printf '%s\n' "$GITHUB_SHA" > source-revision.txt
+          revision="$GITHUB_SHA"
           python .github/scripts/native-release-bundle.py pack --target windows-ucrt64-x86_64 --version "$RELEASE_VERSION" --source-sha "$revision" --binary build/gpmc.exe --runtime-dir build/windows-runtime --dependencies dependencies.txt --abi-report abi-report.json
 
       - name: Set up independent native Windows Python
