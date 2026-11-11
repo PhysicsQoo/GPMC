@@ -4,7 +4,7 @@ GPMC native build jobs produce **candidate artifacts**, not a redistribution
 approval. A public GitHub Release remains a separate manual decision after
 source, runtime, license, signing, and downstream acceptance gates.
 
-## Five-platform candidate policy
+## Six-platform candidate policy
 
 - Linux x86_64 / aarch64: build with a glibc 2.28 baseline; bundle individually
   replaceable GMP/GMPXX/MPFR shared objects with relative `$ORIGIN` paths.
@@ -18,15 +18,25 @@ source, runtime, license, signing, and downstream acceptance gates.
 - Windows x86_64: build native MSYS2 UCRT64 PE, recursively inspect imports
   and bundle all non-system DLLs next to `gpmc.exe`. Unknown dependencies
   fail closed. Verify extraction and execution through native Windows Python.
+- Windows 11 ARM64: build native MSYS2 CLANGARM64 PE32+ (Machine 0xAA64) on
+  GitHub's Windows ARM runner, using ARM64 Clang/GMP/MPFR packages. Bundle
+  the recursive ARM64 DLL closure next to the executable; validate the
+  precise source SHA, executable and DLL architectures/hashes, 11-case
+  independent oracle, and extracted native execution without MSYS2 PATH.
+  This is a separately admitted sixth target: Windows x64 and ARM64
+  candidates cannot be interchanged or treated as evidence for a QuPRS wheel.
 
-The main native release workflow qualifies all five targets from one exact
+The main native release workflow qualifies all six targets from one exact
 source SHA and checks the archive and executable/library hashes. It creates
 **only unpublished draft Releases** for explicit version tags. Actions
 qualification artifacts are not formal releases.
 
-A separate Windows 11 ARM64 / CLANGARM64 candidate experiment may produce an
-optional sixth artifact; it must not block the first qualified five-platform
-release candidate.
+Native Windows ARM64 has passed a separate technical proof of concept, and is
+now included in the unified six-platform candidate qualification. If its
+signing, source, license, minimum-OS or clean-target gates fail, the release
+owner may **explicitly revert the optional ARM64 candidate** and restore the
+five-platform draft plan; never silently omit an asset from a six-platform
+tag or mislabel x64 as ARM64.
 
 ## Remaining hard gates
 
