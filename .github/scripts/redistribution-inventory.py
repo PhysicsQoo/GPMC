@@ -79,7 +79,7 @@ def inventory(archive_path: Path, target: str, source_sha: str) -> dict:
             or abi.get("target") != target
             or abi.get("binary_sha256") != digest(contents[binary_name])
             or abi.get("distribution_admitted") is not False
-            or provenance.get("distribution_admitted") is True):
+            or provenance.get("distribution_admitted") is not False):
         raise ValueError("Source/binary/ABI/admission provenance mismatch")
 
     if target.startswith("windows-"):

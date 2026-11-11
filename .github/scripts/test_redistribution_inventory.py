@@ -151,6 +151,24 @@ class RedistributionInventoryContract(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "non-exact"):
                 module.inventory(archive, TARGET, SOURCE[:12])
 
+    def test_release_inventory_requires_explicit_false_admission(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive = Path(d) / "candidate.tar.gz"
+            make_archive(archive)
+            record = module.inventory(archive, TARGET, SOURCE)
+            self.assertIs(record["distribution_admitted"], False)
+            import inspect
+            self.assertIn('provenance.get("distribution_admitted") is not False',
+                          inspect.getsource(module.inventory))
+
+    def test_build_workflow_pins_pr_checkout_and_provenance(self):
+        workflow = (SCRIPT.parent.parent / "workflows" /
+                    "build-cross-platform.yml").read_text(encoding="utf-8")
+        self.assertIn("github.event.pull_request.head.sha || github.sha", workflow)
+        self.assertIn('tested_checkout_sha=%s', workflow)
+        self.assertIn('$(cat build/source-revision.txt)', workflow)
+        self.assertNotIn('tested_checkout_sha=%s\\n\' "$GITHUB_SHA"', workflow)
+
     def test_never_issues_distribution_approval(self):
         with tempfile.TemporaryDirectory() as d:
             archive = Path(d) / "candidate.tar.gz"
