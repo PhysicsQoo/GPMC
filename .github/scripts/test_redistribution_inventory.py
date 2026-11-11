@@ -211,10 +211,10 @@ class RedistributionInventoryContract(unittest.TestCase):
                   "native-release.yml").read_text(encoding="utf-8")
         # Prevent host mirror/DNS failures from causing redundant Ubuntu
         # compiler builds. Linux compiler and extracted-host smoke remain mandatory.
-        self.assertNotIn("- os: ubuntu-24.04\\n            binary: build/gpmc", build)
+        self.assertNotIn("- os: ubuntu-24.04\n            binary: build/gpmc", build)
         self.assertIn("Build GPMC on macOS and Windows", build)
-        self.assertIn("- os: ubuntu-24.04\\n            target: linux-almalinux8-x86_64", native)
-        self.assertIn("- os: ubuntu-24.04-arm\\n            target: linux-almalinux8-aarch64", native)
+        self.assertIn("- os: ubuntu-24.04\n            target: linux-almalinux8-x86_64", native)
+        self.assertIn("- os: ubuntu-24.04-arm\n            target: linux-almalinux8-aarch64", native)
         self.assertIn("scientific_oracle.py", native)
         self.assertIn("native-release-bundle.py verify", native)
         # Every solver, build-script, and manifest change must still
