@@ -142,6 +142,8 @@ def package(args: argparse.Namespace) -> None:
                          else ("bundled-clangarm64-dlls" if args.target.endswith("aarch64") else "bundled-ucrt64-dlls") if args.target.startswith("windows-")
                          else "bundled-dynamic-gmp-mpfr"),
         "admission": "native-build-and-science-smoke-only",
+        # A native qualification is never legal permission to redistribute.
+        "distribution_admitted": False,
     }
     files = {
         executable_name: (binary, True),
