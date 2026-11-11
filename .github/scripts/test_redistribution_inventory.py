@@ -131,7 +131,7 @@ class RedistributionInventoryContract(unittest.TestCase):
         workflow = (SCRIPT.parent.parent / "workflows" /
                     "native-release.yml").read_text(encoding="utf-8")
         prepare = workflow.split("  prepare-draft:", 1)[1]
-        self.assertIn('archive="dist/gpmc-$GITHUB_REF_NAME-$target.tar.gz"', prepare)
+        self.assertIn('archive="dist/gpmc-$RELEASE_VERSION-$target.tar.gz"', prepare)
         self.assertIn("python3 .github/scripts/redistribution-inventory.py", prepare)
         self.assertNotIn("          cd dist\n          for target", prepare)
         self.assertIn("sha256sum gpmc-*.tar.gz", prepare)
@@ -171,7 +171,7 @@ class RedistributionInventoryContract(unittest.TestCase):
         windows = workflow[start:stop]
         self.assertIn('revision="$(cat source-revision.txt)"', windows)
         self.assertNotIn('revision="$GITHUB_SHA"', windows)
-        self.assertEqual(3, workflow.count(
+        self.assertEqual(4, workflow.count(
             "ref: ${{ github.event_name == 'pull_request' && "
             "github.event.pull_request.head.sha || github.sha }}"))
 
