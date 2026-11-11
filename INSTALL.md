@@ -30,8 +30,8 @@ requests a static binary only when the platform supports static linkage.
 
 The CI matrix builds and tests Linux x64, macOS arm64 and Windows UCRT64 x64,
 and uploads the tested executable, a SHA-256 checksum, source Git revision,
-the exact solver smoke output, the multi-case scientific test transcript,
-and a `build-provenance.txt` manifest recording compiler/CMake and installed
+the exact solver smoke output, multi-case scientific test transcript, Linux
+independent oracle transcript, and a `build-provenance.txt` manifest recording compiler/CMake and installed
 GMP, MPFR, zlib package versions plus resolved include/library paths. SHA-256
 is rechecked before upload. These attest the tested binary and its source,
 but do **not** certify bit-identical rebuilds: packages, toolchains, and
@@ -39,6 +39,8 @@ runner images are not all locked to immutable content digests.
 
 The native scientific tests cover integer MC/PMC, complex WMC/WPMC,
 model cancellation, projected complex weights, and a decimal precision
-witness beyond f64. These are focused golden tests, **not** a proof of full
+witness beyond f64. Linux also executes an independent standard-library
+Python exhaustive oracle using exact `Fraction` arithmetic for 11 small CNFs,
+including existential projection and weights at 45 decimal digits. These are focused golden tests, **not** a proof of full
 solver correctness. Large projected-CNF, high-cancellation and interval-bound
 cases still require their own scientific acceptance.
