@@ -130,17 +130,21 @@ class RedistributionInventoryContract(unittest.TestCase):
     def test_tag_draft_inventory_checks_from_checkout_root(self):
         workflow = (SCRIPT.parent.parent / "workflows" /
                     "native-release.yml").read_text(encoding="utf-8")
-        prepare = workflow.split("  prepare-draft:", 1)[1]
+        prepare = (workflow.split("  prepare-draft:", 1)[1]
+                   .split("  create-draft:", 1)[0])
         self.assertIn('archive="dist/gpmc-$RELEASE_VERSION-$target.tar.gz"', prepare)
         self.assertIn("python3 .github/scripts/redistribution-inventory.py", prepare)
         self.assertNotIn("          cd dist\n          for target", prepare)
         self.assertIn("sha256sum gpmc-*.tar.gz", prepare)
-        self.assertIn("--draft --prerelease --latest=false", prepare)
+        release = workflow.split("  create-draft:", 1)[1]
+        self.assertIn("--draft --prerelease --latest=false", release)
+        self.assertIn("contents: write", release)
 
     def test_pr_validates_release_manifest_without_creating_draft(self):
         workflow = (SCRIPT.parent.parent / "workflows" /
                     "native-release.yml").read_text(encoding="utf-8")
-        prepare = workflow.split("  prepare-draft:", 1)[1]
+        prepare = (workflow.split("  prepare-draft:", 1)[1]
+                   .split("  create-draft:", 1)[0])
         self.assertNotIn(
             "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')\n    needs:",
             prepare,
@@ -154,12 +158,13 @@ class RedistributionInventoryContract(unittest.TestCase):
             "SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}",
             prepare,
         )
-        self.assertIn(
-            "      - name: Create unpublished release draft (human admission gate)\n"
-            "        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
-            prepare,
-        )
-        self.assertIn("gh release create", prepare)
+        release = workflow.split("  create-draft:", 1)[1]
+        self.assertNotIn("contents: write", prepare)
+        self.assertNotIn("gh release create", prepare)
+        self.assertIn("if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')", release)
+        self.assertIn("needs: [prepare-draft]", release)
+        self.assertIn("contents: write", release)
+        self.assertIn("gh release create", release)
 
     def test_windows_release_source_tracks_checkout_head(self):
         # GITHUB_SHA on a pull_request job is GitHub's synthetic merge SHA.
