@@ -26,6 +26,7 @@ SUPPORTED = {
     "macos15-arm64": ("macho", 0x0100000C),
     "macos15-x86_64": ("macho", 0x01000007),
     "windows-ucrt64-x86_64": ("pe", 0x8664),
+    "windows-clangarm64-aarch64": ("pe", 0xAA64),
 }
 LICENSES = (
     "LICENSE.md",
@@ -138,7 +139,7 @@ def package(args: argparse.Namespace) -> None:
         "abi_report_sha256": fingerprint(abi_report),
         "bundled_library_sha256": {name: fingerprint(data) for name, data in runtime_libs.items()},
         "library_mode": ("static-gmp-mpfr" if args.target.startswith("macos")
-                         else "bundled-ucrt64-dlls" if args.target.startswith("windows-")
+                         else ("bundled-clangarm64-dlls" if args.target.endswith("aarch64") else "bundled-ucrt64-dlls") if args.target.startswith("windows-")
                          else "bundled-dynamic-gmp-mpfr"),
         "admission": "native-build-and-science-smoke-only",
     }
@@ -222,7 +223,7 @@ def verify(args: argparse.Namespace) -> None:
         "abi_report_sha256": fingerprint(abi_report),
         "bundled_library_sha256": {name: fingerprint(data) for name, data in runtime_libs.items()},
         "library_mode": ("static-gmp-mpfr" if args.target.startswith("macos")
-                         else "bundled-ucrt64-dlls" if args.target.startswith("windows-")
+                         else ("bundled-clangarm64-dlls" if args.target.endswith("aarch64") else "bundled-ucrt64-dlls") if args.target.startswith("windows-")
                          else "bundled-dynamic-gmp-mpfr"),
         "admission": "native-build-and-science-smoke-only",
     }:
