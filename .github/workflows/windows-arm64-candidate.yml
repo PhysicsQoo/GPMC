@@ -1,0 +1,110 @@
+name: Qualify native Windows ARM64 candidate
+
+on:
+  pull_request:
+    branches: [release/windows-ucrt64-portable-candidate, master]
+    paths:
+      - '.github/workflows/windows-arm64-candidate.yml'
+      - '.github/scripts/windows-runtime-audit.py'
+      - '.github/scripts/native-release-bundle.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-arm64-candidate-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  qualify-windows-arm64:
+    name: Native ARM64 executable and DLLs
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact candidate source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up native MSYS2 CLANGARM64
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: CLANGARM64
+          update: true
+          install: >-
+            mingw-w64-clang-aarch64-clang
+            mingw-w64-clang-aarch64-cmake
+            mingw-w64-clang-aarch64-ninja
+            mingw-w64-clang-aarch64-gmp
+            mingw-w64-clang-aarch64-mpfr
+            mingw-w64-clang-aarch64-zlib
+            mingw-w64-clang-aarch64-python
+            mingw-w64-clang-aarch64-binutils
+
+      - name: Build, check science and bundle native PE ARM64 candidate
+        shell: msys2 {0}
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          set -euo pipefail
+          test "$MSYSTEM" = "CLANGARM64"
+          test "$(uname -m)" = "aarch64"
+          cmake -S . -B build-arm -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-arm --parallel 2
+          test -x build-arm/gpmc.exe
+          bash .github/scripts/scientific-smoke.sh build-arm/gpmc.exe
+          python .github/scripts/scientific_oracle.py build-arm/gpmc.exe
+          python .github/scripts/windows-runtime-audit.py \
+            --arch aarch64 --binary build-arm/gpmc.exe \
+            --runtime-dir build/arm64-runtime \
+            --output abi-report.json --dependencies dependencies.txt
+          pacman -Q mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-gmp \
+            mingw-w64-clang-aarch64-mpfr mingw-w64-clang-aarch64-zlib >> dependencies.txt
+          python .github/scripts/native-release-bundle.py pack \
+            --target windows-clangarm64-aarch64 --version candidate \
+            --source-sha "$GITHUB_SHA" --binary build-arm/gpmc.exe \
+            --runtime-dir build/arm64-runtime \
+            --dependencies dependencies.txt --abi-report abi-report.json
+          python .github/scripts/native-release-bundle.py verify \
+            --target windows-clangarm64-aarch64 --version candidate \
+            --source-sha "$GITHUB_SHA"
+
+      - name: Validate extracted ARM64 executable using native Windows loader
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = 'dist/gpmc-candidate-windows-clangarm64-aarch64.tar.gz'
+          $target = Join-Path $env:RUNNER_TEMP 'gpmc-arm64-clean'
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          tar -xzf $archive -C $target
+          if ($LASTEXITCODE -ne 0) { throw 'Archive extraction failed' }
+          $dlls = @(Get-ChildItem -LiteralPath $target -Filter '*.dll')
+          if ($dlls.Count -lt 3) { throw 'Bundled GMP/MPFR DLL closure missing' }
+          $cnf = Join-Path $target 'one.cnf'
+          [System.IO.File]::WriteAllText($cnf, "p cnf 1 1`n1 0`n")
+          $exe = Join-Path $target 'gpmc.exe'
+          $originalPath = $env:PATH
+          try {
+            $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+            $output = & $exe '-mode=0' $cnf
+            if ($LASTEXITCODE -ne 0) { throw "Native Windows ARM64 GPMC failed with $LASTEXITCODE" }
+            if ($output -notcontains 'c s exact arb int 1') {
+              throw 'Native Windows ARM64 model-counting witness mismatch'
+            }
+          } finally {
+            $env:PATH = $originalPath
+          }
+          Write-Host 'WINDOWS_ARM64_NATIVE_UNPACK_PASS'
+          Write-Host 'CANDIDATE_ONLY distribution_admitted=false'
+
+      - name: Upload unpublished ARM64 candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-qualification-windows-clangarm64-aarch64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
