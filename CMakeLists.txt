@@ -15,6 +15,22 @@ add_compile_options("$<$<CXX_COMPILER_ID:GNU>:-Wno-literal-suffix;-Wno-class-mem
 add_compile_options("$<$<CXX_COMPILER_ID:Clang>:-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init>")
 add_compile_options("$<$<CXX_COMPILER_ID:AppleClang>:-Wno-redundant-move;-Wno-undefined-var-template;-Wno-reserved-user-defined-literal;-Wno-gnu-array-member-paren-init>")
 
+# Resolve native development packages explicitly, rather than silently searching
+# relative directories outside the source tree. CMAKE_PREFIX_PATH is supported.
+find_package(ZLIB REQUIRED)
+find_path(GPMC_GMP_INCLUDE_DIR NAMES gmp.h REQUIRED)
+find_path(GPMC_GMPXX_INCLUDE_DIR NAMES gmpxx.h REQUIRED)
+find_path(GPMC_MPFR_INCLUDE_DIR NAMES mpfr.h REQUIRED)
+find_library(GPMC_GMP_LIBRARY NAMES gmp REQUIRED)
+find_library(GPMC_GMPXX_LIBRARY NAMES gmpxx REQUIRED)
+find_library(GPMC_MPFR_LIBRARY NAMES mpfr REQUIRED)
+
+add_library(gpmc_native_deps INTERFACE)
+target_include_directories(gpmc_native_deps INTERFACE
+  "${GPMC_GMP_INCLUDE_DIR}" "${GPMC_GMPXX_INCLUDE_DIR}" "${GPMC_MPFR_INCLUDE_DIR}")
+target_link_libraries(gpmc_native_deps INTERFACE
+  "${GPMC_MPFR_LIBRARY}" "${GPMC_GMPXX_LIBRARY}" "${GPMC_GMP_LIBRARY}" ZLIB::ZLIB)
+
 add_subdirectory(flow-cutter-pace17)
 
 add_library(gpmc STATIC 
@@ -28,6 +44,7 @@ add_library(gpmc STATIC
 	preprocessor/TreeDecomposition.cc preprocessor/IFlowCutter.cc
 	)
 target_include_directories(gpmc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/flow-cutter-pace17/src)
+target_link_libraries(gpmc PRIVATE gpmc_native_deps)
 target_compile_definitions(gpmc 
   PRIVATE $<$<CONFIG:Debug>:DEBUG>
            __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS
@@ -36,6 +53,6 @@ target_compile_definitions(gpmc
 add_executable(gpmc-bin core/Main.cc)
 target_include_directories(gpmc-bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
-target_link_libraries(gpmc-bin gpmc flowcutter z mpfr gmp gmpxx 
+target_link_libraries(gpmc-bin PRIVATE gpmc flowcutter gpmc_native_deps 
     "$<$<AND:$<BOOL:${GPMC_STATIC_BUILD}>,$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>>:-static>"
 )
