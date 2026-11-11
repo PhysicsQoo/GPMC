@@ -81,6 +81,12 @@ def package(args: argparse.Namespace) -> None:
     binary = Path(args.binary).read_bytes()
     check_architecture(binary, args.target)
     dependencies = Path(args.dependencies).read_bytes()
+    abi_report = Path(args.abi_report).read_bytes()
+    abi = json.loads(abi_report)
+    if abi.get("target") != args.target or abi.get("binary_sha256") != fingerprint(binary):
+        raise ValueError("ABI audit does not correspond to the bundled executable")
+    if abi.get("distribution_admitted") is not False:
+        raise ValueError("Unreviewed candidate must not claim distribution admission")
     provenance = {
         "schema": 1,
         "project": "PhysicsQoo/GPMC",
@@ -88,6 +94,7 @@ def package(args: argparse.Namespace) -> None:
         "source_commit": args.source_sha,
         "platform": args.target,
         "executable_sha256": fingerprint(binary),
+        "abi_report_sha256": fingerprint(abi_report),
         "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "system-runtime",
         "admission": "native-build-and-science-smoke-only",
     }
@@ -95,6 +102,7 @@ def package(args: argparse.Namespace) -> None:
         "gpmc": (binary, True),
         "provenance.json": (json.dumps(provenance, indent=2, sort_keys=True).encode() + b"\n", False),
         "dependencies.txt": (dependencies, False),
+        "abi-report.json": (abi_report, False),
     }
     for path in LICENSES:
         files[f"licenses/{path}"] = ((ROOT / path).read_bytes(), False)
@@ -124,13 +132,19 @@ def verify(args: argparse.Namespace) -> None:
         raise ValueError("Archive checksum mismatch")
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         members = archive.getmembers()
-        allowed = {"gpmc", "provenance.json", "dependencies.txt"} | {f"licenses/{p}" for p in LICENSES}
+        allowed = {"gpmc", "provenance.json", "dependencies.txt", "abi-report.json"} | {f"licenses/{p}" for p in LICENSES}
         if len(members) != len(allowed) or {m.name for m in members} != allowed:
             raise ValueError("Release archive has an unexpected file set")
         if any(not m.isfile() for m in members):
             raise ValueError("Release archive contains non-regular files")
         binary = archive.extractfile("gpmc").read()
         metadata = json.loads(archive.extractfile("provenance.json").read())
+        abi_report = archive.extractfile("abi-report.json").read()
+    abi = json.loads(abi_report)
+    if abi.get("target") != args.target or abi.get("binary_sha256") != fingerprint(binary):
+        raise ValueError("Bundled ABI report does not match the executable")
+    if abi.get("distribution_admitted") is not False:
+        raise ValueError("Bundled ABI report must remain unqualified")
     if metadata != {
         "schema": 1,
         "project": "PhysicsQoo/GPMC",
@@ -138,6 +152,7 @@ def verify(args: argparse.Namespace) -> None:
         "source_commit": args.source_sha,
         "platform": args.target,
         "executable_sha256": fingerprint(binary),
+        "abi_report_sha256": fingerprint(abi_report),
         "library_mode": "static-gmp-mpfr" if args.target.startswith("macos") else "system-runtime",
         "admission": "native-build-and-science-smoke-only",
     }:
@@ -168,10 +183,11 @@ def main() -> None:
     parser.add_argument("--output-dir", default="dist")
     parser.add_argument("--binary")
     parser.add_argument("--dependencies")
+    parser.add_argument("--abi-report")
     args = parser.parse_args()
     if args.action == "pack":
-        if not args.binary or not args.dependencies:
-            parser.error("pack requires --binary and --dependencies")
+        if not args.binary or not args.dependencies or not args.abi_report:
+            parser.error("pack requires --binary, --dependencies and --abi-report")
         package(args)
     else:
         verify(args)

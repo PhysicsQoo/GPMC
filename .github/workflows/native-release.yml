@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/native-release.yml'
       - '.github/scripts/native-release-bundle.py'
+      - '.github/scripts/native-abi-audit.py'
   workflow_dispatch:
   push:
     tags: ['v[0-9]*']
@@ -82,6 +83,7 @@ jobs:
           test -x "$binary"
           bash .github/scripts/scientific-smoke.sh "$binary"
           python3 .github/scripts/scientific_oracle.py "$binary"
+          python3 .github/scripts/native-abi-audit.py --binary "$binary" --target "${{ matrix.target }}" --output abi-report.json
           echo "binary=$binary" >> "$GITHUB_OUTPUT"
           git rev-parse HEAD > source-revision.txt
 
@@ -94,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           revision="$(cat source-revision.txt)"
-          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt
+          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json
           python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
           printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
 
