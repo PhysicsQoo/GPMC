@@ -18,12 +18,22 @@ add_compile_options("$<$<CXX_COMPILER_ID:AppleClang>:-Wno-redundant-move;-Wno-un
 # Resolve native development packages explicitly, rather than silently searching
 # relative directories outside the source tree. CMAKE_PREFIX_PATH is supported.
 find_package(ZLIB REQUIRED)
+# Keep the original GPMC_STATIC_BUILD contract: use static GMP/GMPXX/MPFR
+# archives when requested, without forcing a fully static system executable
+# (unsupported by Apple's system toolchain).
+if(GPMC_STATIC_BUILD)
+  set(GPMC_ORIGINAL_FIND_LIBRARY_SUFFIXES "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".lib")
+endif()
 find_path(GPMC_GMP_INCLUDE_DIR NAMES gmp.h REQUIRED)
 find_path(GPMC_GMPXX_INCLUDE_DIR NAMES gmpxx.h REQUIRED)
 find_path(GPMC_MPFR_INCLUDE_DIR NAMES mpfr.h REQUIRED)
 find_library(GPMC_GMP_LIBRARY NAMES gmp REQUIRED)
 find_library(GPMC_GMPXX_LIBRARY NAMES gmpxx REQUIRED)
 find_library(GPMC_MPFR_LIBRARY NAMES mpfr REQUIRED)
+if(GPMC_STATIC_BUILD)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${GPMC_ORIGINAL_FIND_LIBRARY_SUFFIXES}")
+endif()
 
 add_library(gpmc_native_deps INTERFACE)
 target_include_directories(gpmc_native_deps INTERFACE
@@ -53,6 +63,4 @@ target_compile_definitions(gpmc
 add_executable(gpmc-bin core/Main.cc)
 target_include_directories(gpmc-bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
-target_link_libraries(gpmc-bin PRIVATE gpmc flowcutter gpmc_native_deps 
-    "$<$<AND:$<BOOL:${GPMC_STATIC_BUILD}>,$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>>:-static>"
-)
+target_link_libraries(gpmc-bin PRIVATE gpmc flowcutter gpmc_native_deps)
