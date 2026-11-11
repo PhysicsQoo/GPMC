@@ -204,6 +204,28 @@ class RedistributionInventoryContract(unittest.TestCase):
         self.assertGreaterEqual(producer.count('"distribution_admitted": False,'), 2)
         self.assertIn('"admission": "native-build-and-science-smoke-only",', producer)
 
+    def test_linux_build_and_runtime_covered_by_release_qualification(self):
+        build = (SCRIPT.parent.parent / "workflows" /
+                 "build-cross-platform.yml").read_text(encoding="utf-8")
+        native = (SCRIPT.parent.parent / "workflows" /
+                  "native-release.yml").read_text(encoding="utf-8")
+        # Prevent host mirror/DNS failures from causing redundant Ubuntu
+        # compiler builds. Linux compiler and extracted-host smoke remain mandatory.
+        self.assertNotIn("- os: ubuntu-24.04\\n            binary: build/gpmc", build)
+        self.assertIn("Build GPMC on macOS and Windows", build)
+        self.assertIn("- os: ubuntu-24.04\\n            target: linux-almalinux8-x86_64", native)
+        self.assertIn("- os: ubuntu-24.04-arm\\n            target: linux-almalinux8-aarch64", native)
+        self.assertIn("scientific_oracle.py", native)
+        self.assertIn("native-release-bundle.py verify", native)
+        # Every solver, build-script, and manifest change must still
+        # execute full Linux native qualification.
+        for path in ("core/**", "c-mpfr/**", "preprocessor/**", "ddnnf/**",
+                     "flow-cutter-pace17/**", "mpfr/**", "mtl/**", "utils/**",
+                     "CMakeLists.txt", ".github/workflows/build-cross-platform.yml"):
+            self.assertIn(path, native)
+        self.assertIn("branches: [master]", native)
+        self.assertIn("tags: ['v[0-9]*']", native)
+
     def test_build_workflow_pins_pr_checkout_and_provenance(self):
         workflow = (SCRIPT.parent.parent / "workflows" /
                     "build-cross-platform.yml").read_text(encoding="utf-8")

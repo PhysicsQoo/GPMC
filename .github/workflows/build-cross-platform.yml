@@ -1,4 +1,4 @@
-name: Build GPMC on supported platforms
+name: Build GPMC on macOS and Windows
 
 on:
   push:
@@ -25,8 +25,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            binary: build/gpmc
           - os: macos-15
             binary: build/gpmc
           - os: windows-2022
@@ -40,58 +38,6 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
-
-      - name: Ensure Linux build dependencies (reuse runner, bounded retry)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          missing=()
-          for package in libgmp-dev libmpfr-dev zlib1g-dev; do
-            if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != 'install ok installed' ]]; then
-              missing+=("$package")
-            fi
-          done
-          if ! command -v cmake >/dev/null 2>&1; then missing+=(cmake); fi
-          if ! command -v ninja >/dev/null 2>&1; then missing+=(ninja-build); fi
-          if (( ${#missing[@]} )); then
-            printf 'Missing Ubuntu build packages: %s\n' "${missing[*]}"
-            # Contact apt only if required packages are missing from the runner.
-            installed=false
-            for attempt in 1 2 3; do
-              printf 'APT attempt %s/3\n' "$attempt"
-              if sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
-                && sudo apt-get install -y --no-install-recommends \
-                    -o Acquire::Retries=2 -o Acquire::http::Timeout=20 "${missing[@]}"; then
-                installed=true
-                break
-              fi
-              # Azure hosted mirror DNS can fail independently of the
-              # official Ubuntu archive. Try an independently resolving
-              # official mirror once; never turn a missing dependency into PASS.
-              if (( attempt == 1 )) && [[ -f /etc/apt/apt-mirrors.txt ]] \
-                  && grep -q 'azure.archive.ubuntu.com' /etc/apt/apt-mirrors.txt; then
-                if getent ahostsv4 archive.ubuntu.com >/dev/null 2>&1; then
-                  sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
-                  echo 'Using official Ubuntu archive after Azure mirror fetch failure.'
-                else
-                  echo 'Official Ubuntu archive DNS also unavailable; retaining fail-closed retries.'
-                fi
-              fi
-              if (( attempt < 3 )); then sleep "$((attempt * 10))"; fi
-            done
-            if [[ "$installed" != true ]]; then
-              echo 'Required Ubuntu build packages unavailable after bounded retry (DNS/mirror outage).' >&2
-              exit 1
-            fi
-          else
-            echo 'All Linux build dependencies already present: skipping apt/network.'
-          fi
-          cmake --version | head -n 1
-          ninja --version
-          for package in libgmp-dev libmpfr-dev zlib1g-dev; do
-            test "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" = 'install ok installed'
-          done
 
       - name: Install macOS native dependencies
         if: runner.os == 'macOS'
@@ -114,14 +60,12 @@ jobs:
             mingw-w64-ucrt-x86_64-mpfr
             mingw-w64-ucrt-x86_64-zlib
 
-      - name: Configure, build and smoke (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Configure, build and smoke (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
-          fi
+          export CMAKE_PREFIX_PATH="$(brew --prefix gmp);$(brew --prefix mpfr);$(brew --prefix zlib)"
           cmake --preset release
           cmake --build --preset release --parallel 2
           test -x build/gpmc
@@ -138,25 +82,13 @@ jobs:
               exit 1
             fi
           fi
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            python3 .github/scripts/scientific_oracle.py build/gpmc | tee build/independent-oracle.out
-          else
-            printf 'Linux-only independent exact Fraction oracle; native smoke ran here.\n' > build/independent-oracle.out
-          fi
+          printf 'Independent Linux exact Fraction oracles run in native-release.yml.\n' > build/independent-oracle.out
           printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
           build/gpmc -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
           grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            shasum -a 256 build/gpmc > build/gpmc.sha256
-          else
-            sha256sum build/gpmc > build/gpmc.sha256
-          fi
+          shasum -a 256 build/gpmc > build/gpmc.sha256
           git rev-parse HEAD > build/source-revision.txt
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            shasum -a 256 -c build/gpmc.sha256
-          else
-            sha256sum -c build/gpmc.sha256
-          fi
+          shasum -a 256 -c build/gpmc.sha256
           {
             printf 'tested_checkout_sha=%s\n' "$(cat build/source-revision.txt)"
             printf 'pr_head_sha=%s\n' '${{ github.event.pull_request.head.sha || github.sha }}'
@@ -164,18 +96,7 @@ jobs:
             printf 'runner=%s/%s\n' "${{ runner.os }}" "${{ runner.arch }}"
             cmake --version | sed -n '1p'
             c++ --version | sed -n '1p'
-            if [[ "${{ runner.os }}" == "Linux" ]]; then
-              dpkg-query -W -f='${Package} ${Version}\n' libgmp-dev libmpfr-dev zlib1g-dev
-              for package in cmake ninja-build; do
-                if ! dpkg-query -W -f='${Package} ${Version}\n' "$package" 2>/dev/null; then
-                  command_name="$package"
-                  if [[ "$package" == 'ninja-build' ]]; then command_name=ninja; fi
-                  printf '%s runner_tool=%s\n' "$package" "$(command -v "$command_name")"
-                fi
-              done
-            else
-              brew list --versions gmp mpfr zlib cmake ninja
-            fi
+            brew list --versions gmp mpfr zlib cmake ninja
             grep -E '^GPMC_.*_(INCLUDE_DIR|LIBRARY):' build/CMakeCache.txt || true
           } > build/build-provenance.txt
 
