@@ -204,6 +204,18 @@ class RedistributionInventoryContract(unittest.TestCase):
         self.assertGreaterEqual(producer.count('"distribution_admitted": False,'), 2)
         self.assertIn('"admission": "native-build-and-science-smoke-only",', producer)
 
+    def test_macos_arm64_runner_fallback_preserves_minimum_deployment(self):
+        native = (SCRIPT.parent.parent / "workflows" /
+                  "native-release.yml").read_text(encoding="utf-8")
+        build = (SCRIPT.parent.parent / "workflows" /
+                 "build-cross-platform.yml").read_text(encoding="utf-8")
+        self.assertIn("- os: macos-26\\n            target: macos15-arm64", native)
+        self.assertIn("- os: macos-15-intel\\n            target: macos15-x86_64", native)
+        self.assertIn("CMAKE_OSX_DEPLOYMENT_TARGET=15.0", native)
+        self.assertIn("- os: macos-26\\n            binary: build/gpmc", build)
+        # Still validate native arm64, not an Intel cross-compile.
+        self.assertIn("--arch \"$(uname -m)\"", native)
+
     def test_linux_build_and_runtime_covered_by_release_qualification(self):
         build = (SCRIPT.parent.parent / "workflows" /
                  "build-cross-platform.yml").read_text(encoding="utf-8")

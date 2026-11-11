@@ -15,6 +15,10 @@ source, runtime, license, signing, and downstream acceptance gates.
   Modified native code is ad-hoc signed for scientific and relocation tests.
   The previously validated static-link build mode is kept as a technical
   fallback only; LGPL obligations apply regardless of linkage choice.
+  GitHub Actions uses a macOS 26 ARM64 host for this candidate when the
+  macOS 15 ARM64 hosted runner is unavailable; `CMAKE_OSX_DEPLOYMENT_TARGET`
+  remains 15.0. The newer build host alone does not prove execution on a
+  clean macOS 15 machine.
 - Windows x86_64: build native MSYS2 UCRT64 PE, recursively inspect imports
   and bundle all non-system DLLs next to `gpmc.exe`. Unknown dependencies
   fail closed. Verify extraction and execution through native Windows Python.
