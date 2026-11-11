@@ -56,6 +56,28 @@ def is_windows_dll(name: str) -> bool:
             or name.startswith("ext-ms-"))
 
 
+def installed_package_owner(path: Path) -> dict[str, str]:
+    """Local MSYS2 package owner/version; not corresponding-source proof."""
+    owner_lines = subprocess.run(
+        ["pacman", "-Qqo", str(path)], check=True, capture_output=True,
+        text=True, timeout=15,
+    ).stdout.strip().splitlines()
+    if len(owner_lines) != 1 or not re.fullmatch(r"[A-Za-z0-9+_.-]+", owner_lines[0]):
+        raise ValueError(f"Ambiguous installed MSYS2 package owner for {path.name}")
+    package = owner_lines[0]
+    installed_lines = subprocess.run(
+        ["pacman", "-Q", package], check=True, capture_output=True,
+        text=True, timeout=15,
+    ).stdout.strip().splitlines()
+    if len(installed_lines) != 1 or not installed_lines[0].startswith(package + " "):
+        raise ValueError(f"Ambiguous version for installed package {package}")
+    version = installed_lines[0][len(package) + 1:].strip()
+    if not re.fullmatch(r"[A-Za-z0-9+_.:-]+", version):
+        raise ValueError(f"Invalid installed package version for {package}")
+    return {"package": package, "version": version,
+            "evidence": "local-pacman-database-only-not-corresponding-source"}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--arch", choices=sorted(PE_MACHINES), default="x86_64")
@@ -82,6 +104,7 @@ def main() -> None:
     queue = [binary]
     seen_imports: set[str] = set()
     bundled: dict[str, bytes] = {}
+    installed_owners: dict[str, dict[str, str]] = {}
     system: set[str] = set()
     while queue:
         current = queue.pop(0)
@@ -97,6 +120,7 @@ def main() -> None:
                 if not pe_arch_matches(data, args.arch):
                     raise ValueError(f"Incorrect PE DLL architecture for {args.arch}: {name}")
                 bundled[name] = data
+                installed_owners[name] = installed_package_owner(dll)
                 queue.append(dll)
             elif is_windows_dll(name):
                 system.add(name)
@@ -123,6 +147,7 @@ def main() -> None:
             "machine": args.arch,
             "runtime": "CLANGARM64" if args.arch == "aarch64" else "UCRT64",
             "bundled_dll_sha256": hashes,
+            "installed_dll_package_owners": {name: installed_owners[name] for name in sorted(bundled)},
             "system_dlls": sorted(system),
             "windows_clean_install_certified": False,
             "reason": "Release redistribution license and clean-user installation remain separate gates.",

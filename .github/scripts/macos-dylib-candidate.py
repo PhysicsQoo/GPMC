@@ -221,6 +221,14 @@ def bundle(args: argparse.Namespace) -> None:
                 audit.get("distribution_admitted") is not False):
             raise ValueError("ABI audit is not bound to signed staged executable")
         dependency_bytes = (cmd("otool", "-L", str(executable)) + "\n").encode()
+        formula_versions = {}
+        for raw in cmd("brew", "list", "--versions", "gmp", "mpfr").splitlines():
+            parts = raw.strip().split()
+            if len(parts) != 2 or parts[0] in formula_versions:
+                raise ValueError(f"Ambiguous installed Homebrew formula: {raw!r}")
+            formula_versions[parts[0]] = parts[1]
+        if set(formula_versions) != {"gmp", "mpfr"}:
+            raise ValueError(f"Missing installed Homebrew formula identity: {formula_versions}")
         report = {
             "schema": 1,
             "project": "PhysicsQoo/GPMC",
@@ -229,6 +237,7 @@ def bundle(args: argparse.Namespace) -> None:
             "platform": f"macos15-{args.arch}",
             "target": f"macos15-{args.arch}",
             "library_mode": "bundled-relocatable-gmp-mpfr-dylibs",
+            "installed_homebrew_formula_versions": formula_versions,
             "binary_sha256": sha(bins["gpmc"]),
             "executable_sha256": sha(bins["gpmc"]),
             "abi_report_sha256": sha(audit_bytes),
@@ -299,6 +308,7 @@ def verify(args: argparse.Namespace) -> None:
             or report.get("distribution_admitted") is not False
             or report.get("notarized") is not False
             or report.get("library_mode") != "bundled-relocatable-gmp-mpfr-dylibs"
+            or set(report.get("installed_homebrew_formula_versions", {})) != {"gmp", "mpfr"}
             or report.get("binary_sha256") != sha(files["gpmc"])
             or report.get("libraries_sha256") != {k: sha(files[k]) for k in lib_names}):
         raise ValueError("Source/target/binary/dylib provenance mismatch")

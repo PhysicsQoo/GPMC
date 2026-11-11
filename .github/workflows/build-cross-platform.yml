@@ -58,6 +58,18 @@ jobs:
                 installed=true
                 break
               fi
+              # Azure hosted mirror DNS can fail independently of the
+              # official Ubuntu archive. Try an independently resolving
+              # official mirror once; never turn a missing dependency into PASS.
+              if (( attempt == 1 )) && [[ -f /etc/apt/apt-mirrors.txt ]] \
+                  && grep -q 'azure.archive.ubuntu.com' /etc/apt/apt-mirrors.txt; then
+                if getent ahostsv4 archive.ubuntu.com >/dev/null 2>&1; then
+                  sudo sed -i 's|azure.archive.ubuntu.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt
+                  echo 'Using official Ubuntu archive after Azure mirror fetch failure.'
+                else
+                  echo 'Official Ubuntu archive DNS also unavailable; retaining fail-closed retries.'
+                fi
+              fi
               if (( attempt < 3 )); then sleep "$((attempt * 10))"; fi
             done
             if [[ "$installed" != true ]]; then
