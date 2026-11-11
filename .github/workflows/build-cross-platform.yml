@@ -1,48 +1,110 @@
-name: Build GPMC on all platforms
+name: Build GPMC on supported platforms
 
 on:
   push:
-    branches: [ main ]
+    branches: [master]
   pull_request:
-    branches: [ main ]
+    branches: [master]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build and smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-24.04
+            binary: build/gpmc
+          - os: macos-15
+            binary: build/gpmc
+          - os: windows-2022
+            binary: build/gpmc.exe
 
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
 
-    - name: Set up CMake
-      uses: lukka/get-cmake@v3.29.2
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
 
-    - name: Configure CMake
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Install macOS native dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install gmp mpfr zlib cmake ninja
 
-    - name: Build
-      run: cmake --build build --config Release --parallel
+      - name: Set up Windows UCRT64 toolchain and dependencies
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-gmp
+            mingw-w64-ucrt-x86_64-mpfr
+            mingw-w64-ucrt-x86_64-zlib
 
-    - name: Set binary path by OS
-      id: setpath
-      shell: bash
-      run: |
-        if [ "${{ runner.os }}" = "Windows" ]; then
-          echo "bin_path=build/Release/GPMC.exe" >> "$GITHUB_OUTPUT"
-        else
-          echo "bin_path=build/GPMC" >> "$GITHUB_OUTPUT"
-        fi
+      - name: Configure, build and smoke (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            export CXXFLAGS="-I$(brew --prefix gmp)/include -I$(brew --prefix mpfr)/include"
+            export LDFLAGS="-L$(brew --prefix gmp)/lib -L$(brew --prefix mpfr)/lib -L$(brew --prefix zlib)/lib"
+          fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build --parallel 2
+          test -x build/gpmc
+          printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
+          build/gpmc -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
+          grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            shasum -a 256 build/gpmc > build/gpmc.sha256
+          else
+            sha256sum build/gpmc > build/gpmc.sha256
+          fi
+          git rev-parse HEAD > build/source-revision.txt
 
-    - name: Upload binary artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: gpmc-${{ runner.os }}-${{ runner.arch }}
-        path: ${{ steps.setpath.outputs.bin_path }}
+      - name: Configure, build and smoke (Windows UCRT64)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build build --parallel 2
+          test -x build/gpmc.exe
+          printf 'p cnf 1 1\n1 0\n' > build/gpmc-smoke.cnf
+          build/gpmc.exe -mode=0 build/gpmc-smoke.cnf > build/gpmc-smoke.out
+          grep -Eq '^c s exact arb int 1$' build/gpmc-smoke.out
+          sha256sum build/gpmc.exe > build/gpmc.sha256
+          printf '%s\n' "$GITHUB_SHA" > build/source-revision.txt
+
+      - name: Upload tested binary and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpmc-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ${{ matrix.binary }}
+            build/gpmc.sha256
+            build/source-revision.txt
+            build/gpmc-smoke.out
+          if-no-files-found: error
