@@ -131,6 +131,22 @@ jobs:
             grep -E '^GPMC_.*_(INCLUDE_DIR|LIBRARY):' build/CMakeCache.txt || true
           } > build/build-provenance.txt
 
+      - name: Compare pinned baseline on Linux with the independent oracle
+        if: runner.os == 'Linux' && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline_sha=dae4d82e7aeb7643ac4ef99f226f39f037a39f15
+          git fetch --no-tags --depth=1 origin "$baseline_sha"
+          git worktree add --detach "$RUNNER_TEMP/gpmc-baseline-source" "$baseline_sha"
+          cmake -S "$RUNNER_TEMP/gpmc-baseline-source" \
+                -B "$RUNNER_TEMP/gpmc-baseline-build" \
+                -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build "$RUNNER_TEMP/gpmc-baseline-build" --parallel 2
+          python3 .github/scripts/scientific_oracle.py "$RUNNER_TEMP/gpmc-baseline-build/gpmc" | tee build/baseline-oracle.out
+          grep -qx 'INDEPENDENT_ORACLE_PASS cases=11' build/baseline-oracle.out
+          printf 'A_B_ORACLE_PASS baseline=%s current=%s\n' "$baseline_sha" "$GITHUB_SHA" | tee -a build/baseline-oracle.out
+
       - name: Upload tested binary and provenance
         uses: actions/upload-artifact@v4
         with:
@@ -142,5 +158,6 @@ jobs:
             build/gpmc-smoke.out
             build/scientific-smoke.out
             build/independent-oracle.out
+            build/baseline-oracle.out
             build/build-provenance.txt
           if-no-files-found: error
