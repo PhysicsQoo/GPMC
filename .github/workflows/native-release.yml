@@ -106,9 +106,12 @@ jobs:
         run: |
           set -euo pipefail
           revision="$(cat source-revision.txt)"
-          runtime_args=()
-          if [[ "$RUNNER_OS" == "Linux" ]]; then runtime_args=(--runtime-dir build/libs); fi
-          python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json "${runtime_args[@]}"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json --runtime-dir build/libs
+          else
+            # macOS system bash 3.2 + nounset rejects expansion of an empty array.
+            python3 .github/scripts/native-release-bundle.py pack --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision" --binary "$NATIVE_BINARY" --dependencies dependencies.txt --abi-report abi-report.json
+          fi
           python3 .github/scripts/native-release-bundle.py verify --target "$RELEASE_TARGET" --version "$RELEASE_VERSION" --source-sha "$revision"
           printf 'native_release_target=%s\nsource_commit=%s\n' "$RELEASE_TARGET" "$revision"
 
