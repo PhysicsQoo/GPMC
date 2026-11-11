@@ -25,7 +25,8 @@ TARGET = "linux-almalinux8-x86_64"
 
 
 def make_archive(path: Path, *, altered: bool = False, traversal: bool = False,
-                 duplicate: bool = False, omit_notice: bool = False) -> None:
+                 duplicate: bool = False, omit_notice: bool = False,
+                 missing_admission: bool = False) -> None:
     binary = b"example-gpmc"
     libs = {f"libs/{name}": name.encode() for name in
             ("libgmp.so.10", "libgmpxx.so.4", "libmpfr.so.4")}
@@ -42,6 +43,7 @@ def make_archive(path: Path, *, altered: bool = False, traversal: bool = False,
         "abi_report_sha256": module.digest(abi),
         "bundled_library_sha256": hashed,
         "admission": "native-build-and-science-smoke-only",
+        "distribution_admitted": False,
     }).encode()
     files = {
         "gpmc": binary, "abi-report.json": abi, "provenance.json": prov,
@@ -49,6 +51,11 @@ def make_archive(path: Path, *, altered: bool = False, traversal: bool = False,
         **libs,
         **{n: b"placeholder notice" for n in module.NOTICE_PATHS},
     }
+    if missing_admission:
+        # Rebuild the otherwise valid provenance without the admission marker.
+        updated = json.loads(files["provenance.json"])
+        del updated["distribution_admitted"]
+        files["provenance.json"] = json.dumps(updated).encode()
     if omit_notice:
         del files[sorted(module.NOTICE_PATHS)[0]]
     if altered:
@@ -155,11 +162,10 @@ class RedistributionInventoryContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             archive = Path(d) / "candidate.tar.gz"
             make_archive(archive)
-            record = module.inventory(archive, TARGET, SOURCE)
-            self.assertIs(record["distribution_admitted"], False)
-            import inspect
-            self.assertIn('provenance.get("distribution_admitted") is not False',
-                          inspect.getsource(module.inventory))
+            self.assertIs(module.inventory(archive, TARGET, SOURCE)["distribution_admitted"], False)
+            make_archive(archive, missing_admission=True)
+            with self.assertRaisesRegex(ValueError, "provenance mismatch"):
+                module.inventory(archive, TARGET, SOURCE)
 
     def test_build_workflow_pins_pr_checkout_and_provenance(self):
         workflow = (SCRIPT.parent.parent / "workflows" /
