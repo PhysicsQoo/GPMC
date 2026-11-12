@@ -56,6 +56,15 @@ class CliArchiveTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "provenance mismatch"):
                 cli.verify(args)
 
+    def test_ubuntu22_targets_and_mpfr6_instructions(self):
+        self.assertIn("libmpfr.so.6", cli.usage("linux-ubuntu22-x86_64").decode())
+        self.assertIn("glibc 2.35", cli.usage("linux-ubuntu22-aarch64").decode())
+        self.assertNotIn("libmpfr.so.4", cli.usage("linux-ubuntu22-x86_64").decode())
+        self.assertEqual(
+            cli.archive_name("v1.0.1", "linux-ubuntu22-aarch64"),
+            "gpmc-cli-v1.0.1-linux-ubuntu22-aarch64.tar.gz",
+        )
+
     def test_bad_version_or_unknown_target_is_rejected(self):
         with self.assertRaises(ValueError):
             cli.archive_name("v1.0.0-rc.1", cli.MACHINES[0])

@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SUPPORTED = {
     "linux-almalinux8-x86_64": ("elf", 62),
     "linux-almalinux8-aarch64": ("elf", 183),
+    "linux-ubuntu22-x86_64": ("elf", 62),
+    "linux-ubuntu22-aarch64": ("elf", 183),
     "macos15-arm64": ("macho", 0x0100000C),
     "macos15-x86_64": ("macho", 0x01000007),
     "windows-ucrt64-x86_64": ("pe", 0x8664),

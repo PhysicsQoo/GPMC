@@ -22,6 +22,8 @@ LICENSES = (
 MACHINES = (
     "linux-almalinux8-x86_64",
     "linux-almalinux8-aarch64",
+    "linux-ubuntu22-x86_64",
+    "linux-ubuntu22-aarch64",
     "macos15-arm64",
     "macos15-x86_64",
     "windows-ucrt64-x86_64",
@@ -61,7 +63,16 @@ def usage(target: str) -> bytes:
         "This is NOT a self-contained installer. Install compatible native\n"
         "runtime libraries using your platform's package manager.\n\n"
     )
-    if target.startswith("linux-"):
+    if target.startswith("linux-ubuntu22-"):
+        detail = (
+            "Linux: Ubuntu 22.04 baseline, glibc 2.35 or newer.\n"
+            "Install compatible system runtime packages (Ubuntu/Debian):\n"
+            "sudo apt-get install libmpfr6 libgmp10 libgmpxx4ldbl zlib1g\n"
+            "The executable requires libmpfr.so.6,\n"
+            "libgmp.so.10, libgmpxx.so.4 and glibc >= 2.35.\n"
+            "Other distributions are not certified by this release.\n"
+        )
+    elif target.startswith("linux-"):
         detail = (
             "Linux: build ABI baseline is AlmaLinux 8 / glibc 2.28.\n"
             "Install compatible gmp, gmp-c++, mpfr and zlib packages.\n"
