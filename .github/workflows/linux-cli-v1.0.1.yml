@@ -1,0 +1,210 @@
+name: Linux GPMC v1.0.1 MPFR6 compatibility
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/linux-cli-v1.0.1.yml'
+      - '.github/scripts/build-linux-ubuntu22-cli.sh'
+      - '.github/scripts/cli-release.py'
+      - '.github/scripts/native-release-bundle.py'
+      - '.github/scripts/test_cli_release.py'
+      - 'docs/CLI-RELEASE-v1.0.1.md'
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpmc-linux-mpfr6-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linux:
+    name: Linux MPFR6 native and extracted CLI (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: linux-ubuntu22-x86_64
+          - os: ubuntu-24.04-arm
+            target: linux-ubuntu22-aarch64
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Offline archive contract regression tests
+        run: python3 .github/scripts/test_cli_release.py
+
+      - name: Build against Ubuntu 22.04 GMP/MPFR 6 system packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ubuntu:22.04
+          docker run --rm \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            --mount type=bind,src="$GITHUB_WORKSPACE",dst=/src \
+            -w /src ubuntu:22.04 \
+            bash .github/scripts/build-linux-ubuntu22-cli.sh
+          test -x linux-v101-build/gpmc
+
+      - name: Package source-pinned v1.0.1 Linux-only CLI
+        shell: bash
+        env:
+          CLI_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          python3 .github/scripts/cli-release.py pack \
+            --version v1.0.1 --target "$CLI_TARGET" \
+            --source-sha "$revision" \
+            --binary linux-v101-build/gpmc \
+            --dependencies linux-v101-build/dependencies.txt
+          python3 .github/scripts/cli-release.py verify \
+            --version v1.0.1 --target "$CLI_TARGET" \
+            --source-sha "$revision"
+
+      - name: Clean Ubuntu 24.04 runtime loader and complex WMC on extracted archive
+        shell: bash
+        env:
+          CLI_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libmpfr6 libgmp10 libgmpxx4ldbl zlib1g
+          mkdir -p "$RUNNER_TEMP/gpmc-v101"
+          tar -xzf "dist-cli/gpmc-cli-v1.0.1-$CLI_TARGET.tar.gz" -C "$RUNNER_TEMP/gpmc-v101"
+          binary="$RUNNER_TEMP/gpmc-v101/gpmc"
+          test -x "$binary"
+          readelf -d "$binary" | grep -F 'Shared library: [libmpfr.so.6]'
+          test "$(ldd "$binary" | grep -F 'not found' | wc -l)" -eq 0
+          bash .github/scripts/scientific-smoke.sh "$binary"
+          python3 .github/scripts/scientific_oracle.py "$binary"
+          echo "UBUNTU24_EXTRACTED_RELEASE_RUNTIME_PASS target=$CLI_TARGET"
+
+      - name: Clean Ubuntu 22.04 runtime on extracted archive
+        shell: bash
+        env:
+          CLI_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e CLI_TARGET="$CLI_TARGET" \
+            --mount type=bind,src="$GITHUB_WORKSPACE",dst=/src,readonly \
+            -w /src ubuntu:22.04 bash -euo pipefail -c '
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get -qq update
+              apt-get -qq -y install --no-install-recommends \
+                libmpfr6 libgmp10 libgmpxx4ldbl zlib1g python3
+              mkdir -p /tmp/installed
+              tar -xzf "dist-cli/gpmc-cli-v1.0.1-$CLI_TARGET.tar.gz" -C /tmp/installed
+              test -x /tmp/installed/gpmc
+              ldd /tmp/installed/gpmc
+              if ldd /tmp/installed/gpmc | grep -F "not found"; then exit 1; fi
+              bash .github/scripts/scientific-smoke.sh /tmp/installed/gpmc
+              python3 .github/scripts/scientific_oracle.py /tmp/installed/gpmc
+              echo "UBUNTU22_CLEAN_EXTRACTED_RUNTIME_PASS target=$CLI_TARGET"
+            '
+
+      - name: Upload verified Linux v1.0.1 CLI archive and checksum
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gpmc-v101-${{ matrix.target }}
+          path: dist-cli/*
+          if-no-files-found: error
+          retention-days: 14
+
+  manifest:
+    name: Verify two immutable Linux v1.0.1 assets
+    needs: [linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: gpmc-v101-*
+          merge-multiple: true
+          path: dist-cli
+      - name: Verify exact SHA, architecture, license and only two archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          for target in linux-ubuntu22-x86_64 linux-ubuntu22-aarch64; do
+            python3 .github/scripts/cli-release.py verify \
+              --version v1.0.1 --target "$target" --source-sha "$revision"
+          done
+          test "$(find dist-cli -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 2
+          test "$(find dist-cli -maxdepth 1 -name '*.sha256' | wc -l)" -eq 2
+          (cd dist-cli && sha256sum -c *.sha256)
+          (cd dist-cli && sha256sum *.tar.gz > SHA256SUMS.txt)
+          echo "LINUX_V101_RELEASE_MANIFEST_PASS source=$revision"
+
+  publish:
+    # Only the approved master squash commit can acquire a write-capable token.
+    if: "github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.event.head_commit.message, 'release: GPMC v1.0.1 Linux runtime compatibility')"
+    needs: [manifest]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: gpmc-v101-*
+          merge-multiple: true
+          path: dist-cli
+      - name: Reverify and publish two Linux assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          revision="$(git rev-parse HEAD)"
+          test "$revision" = "$GITHUB_SHA"
+          for target in linux-ubuntu22-x86_64 linux-ubuntu22-aarch64; do
+            python3 .github/scripts/cli-release.py verify \
+              --version v1.0.1 --target "$target" --source-sha "$revision"
+          done
+          test "$(find dist-cli -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 2
+          (cd dist-cli && sha256sum -c *.sha256)
+          (cd dist-cli && sha256sum *.tar.gz > SHA256SUMS.txt)
+          if gh release view v1.0.1 >/dev/null 2>&1; then
+            echo 'v1.0.1 Release already exists, refusing overwrite' >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.1" > "$RUNNER_TEMP/existing-tag.json" 2>/dev/null; then
+            test "$(jq -r .object.sha "$RUNNER_TEMP/existing-tag.json")" = "$GITHUB_SHA"
+            gh release create v1.0.1 dist-cli/gpmc-cli-v1.0.1-*.tar.gz dist-cli/SHA256SUMS.txt \
+              --verify-tag --title "GPMC v1.0.1 — Linux MPFR6 compatibility" \
+              --notes-file docs/CLI-RELEASE-v1.0.1.md
+          else
+            gh release create v1.0.1 dist-cli/gpmc-cli-v1.0.1-*.tar.gz dist-cli/SHA256SUMS.txt \
+              --target "$GITHUB_SHA" --title "GPMC v1.0.1 — Linux MPFR6 compatibility" \
+              --notes-file docs/CLI-RELEASE-v1.0.1.md
+          fi
+          test "$(gh release view v1.0.1 --json isDraft --jq .isDraft)" = false
+          test "$(gh release view v1.0.1 --json isPrerelease --jq .isPrerelease)" = false
+          test "$(gh release view v1.0.1 --json assets --jq '.assets | length')" -eq 3
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.1" --jq '.object.sha')" = "$GITHUB_SHA"
+          echo "PUBLIC_LINUX_V101_RELEASE_PASS source=$GITHUB_SHA"
