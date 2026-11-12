@@ -68,7 +68,7 @@ def usage(target: str) -> bytes:
             "Linux: Ubuntu 22.04 baseline, glibc 2.35 or newer.\n"
             "Install compatible system runtime packages (Ubuntu/Debian):\n"
             "sudo apt-get install libmpfr6 libgmp10 libgmpxx4ldbl zlib1g\n"
-            "The executable requires libmpfr.so.6 (NOT libmpfr.so.4),\n"
+            "The executable requires libmpfr.so.6,\n"
             "libgmp.so.10, libgmpxx.so.4 and glibc >= 2.35.\n"
             "Other distributions are not certified by this release.\n"
         )
