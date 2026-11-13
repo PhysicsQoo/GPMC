@@ -62,6 +62,20 @@ jobs:
             -DGPMC_BUILD_QU_PRS_BENCHMARKS=ON -DCODSPEED_MODE=off
       - name: Compile GPMC CLI and in-process benchmark
         run: cmake --build build-quprs-bench --target gpmc-bin gpmc_quprs_cnf_bench --parallel 2
+      - name: Validate real GPMC CLI in fresh native process per original QuPRS case
+        run: |
+          python3 benchmarks/quprs/native_process_parity.py \
+            --binary build-quprs-bench/gpmc \
+            --corpus "${RUNNER_TEMP}/quprs-cnf" \
+            --trials 3 \
+            --output "${RUNNER_TEMP}/gpmc-native-process-report.json"
+      - name: Save independent native CLI parity even if in-process benchmark fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-gpmc-cli-process-parity
+          path: ${{ runner.temp }}/gpmc-native-process-report.json
+          retention-days: 14
+          if-no-files-found: error
       - name: Execute all six source-locked correctness-gated benchmark cases
         env:
           GPMC_QU_PRS_CNF_DIR: ${{ runner.temp }}/quprs-cnf
