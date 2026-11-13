@@ -117,4 +117,6 @@ jobs:
         uses: CodSpeedHQ/action@v5
         with:
           mode: simulation
-          run: codspeed run -m simulation
+          # CodSpeed Action already invokes the runner. No nested codspeed run:
+          # empty run discovers the six source-locked exec targets in codspeed.yml.
+          config: codspeed.yml
