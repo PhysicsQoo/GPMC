@@ -81,7 +81,7 @@ if(GPMC_BUILD_QU_PRS_BENCHMARKS)
   )
   FetchContent_MakeAvailable(google_benchmark)
   add_executable(gpmc_quprs_cnf_bench benchmarks/quprs/gpmc_quprs_bench.cc)
-  target_include_directories(gpmc_quprs_cnf_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  set_target_properties(gpmc_quprs_cnf_bench PROPERTIES\n    CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)\n  target_include_directories(gpmc_quprs_cnf_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(gpmc_quprs_cnf_bench PRIVATE
     gpmc flowcutter gpmc_native_deps benchmark::benchmark)
 endif()
