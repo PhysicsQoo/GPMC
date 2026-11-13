@@ -82,7 +82,7 @@ void BM_QuPRSDirectCnfFullPipeline(benchmark::State& state,
         return;
     }
     for (auto _ : state) {
-        const auto result = count_full_pipeline(cnf);
+        auto result = count_full_pipeline(cnf);
         benchmark::DoNotOptimize(result.real);
         benchmark::DoNotOptimize(result.imag);
         if (!matches(result, sat, real, imag)) {
