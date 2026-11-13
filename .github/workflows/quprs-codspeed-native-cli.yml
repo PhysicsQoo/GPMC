@@ -1,0 +1,120 @@
+name: GPMC native CLI QuPRS CodSpeed research
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "benchmarks/quprs/prepare_direct_cnf.py"
+      - "benchmarks/quprs/native_process_parity.py"
+      - "benchmarks/quprs/README.md"
+      - "codspeed.yml"
+      - ".github/workflows/quprs-codspeed-native-cli.yml"
+  push:
+    branches: [master]
+    paths:
+      - "benchmarks/quprs/prepare_direct_cnf.py"
+      - "benchmarks/quprs/native_process_parity.py"
+      - "benchmarks/quprs/README.md"
+      - "codspeed.yml"
+      - ".github/workflows/quprs-codspeed-native-cli.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpmc-quprs-cli-codspeed-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-science:
+    name: QuPRS original source-locked GPMC CLI science and WallTime smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - name: Generate original QuPRS test-defined CNF directly from pinned source
+        run: |
+          python3 benchmarks/quprs/prepare_direct_cnf.py \
+            --quprs .upstream/quprs --output build-quprs-bench/quprs-cnf
+      - name: Install C++ native development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Build unchanged production GPMC C++ CLI (no research library hooks)
+        run: |
+          cmake -S . -B build-quprs-bench -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-quprs-bench --target gpmc-bin --parallel 2
+      - name: Verify six original GPMC Full Complex WMC/SAT cases x 3 fresh processes
+        run: |
+          python3 benchmarks/quprs/native_process_parity.py \
+            --binary build-quprs-bench/gpmc \
+            --corpus build-quprs-bench/quprs-cnf \
+            --trials 3 --output build-quprs-bench/quprs-process-parity.json
+      - name: Archive all source bytes, source hashes, and per-process timings
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpmc-quprs-source-locked-native-parity
+          path: |
+            build-quprs-bench/quprs-cnf/
+            build-quprs-bench/quprs-process-parity.json
+          if-no-files-found: error
+          retention-days: 30
+
+  codspeed:
+    name: Native GPMC C++ CLI CodSpeed Simulation (opt-in)
+    needs: cli-science
+    if: >-
+      vars.GPMC_CODSPEED_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - name: Emit source-pinned identical six GPMC CNF bytes
+        run: |
+          python3 benchmarks/quprs/prepare_direct_cnf.py \
+            --quprs .upstream/quprs --output build-quprs-bench/quprs-cnf
+      - name: Install native C++ dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Compile unchanged GPMC C++ executable
+        run: |
+          cmake -S . -B build-quprs-bench -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-quprs-bench --target gpmc-bin --parallel 2
+      - name: Check exact SAT and WMC before measurement
+        run: |
+          python3 benchmarks/quprs/native_process_parity.py \
+            --binary build-quprs-bench/gpmc \
+            --corpus build-quprs-bench/quprs-cnf \
+            --trials 2
+      - name: CodSpeed native C++ full CLI exec Simulation from six named source CNFs
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          run: codspeed run -m simulation
