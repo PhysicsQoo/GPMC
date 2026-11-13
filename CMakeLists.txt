@@ -64,3 +64,24 @@ add_executable(gpmc-bin core/Main.cc)
 target_include_directories(gpmc-bin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(gpmc-bin PROPERTIES OUTPUT_NAME gpmc)
 target_link_libraries(gpmc-bin PRIVATE gpmc flowcutter gpmc_native_deps)
+# Experimental source-locked C++ benchmarking only. OFF for all normal/release
+# builds; GPMC's solver engine, CLI, default MPFR precision and search are
+# unchanged. The CodSpeed fork of Google Benchmark exposes simulation hooks.
+option(GPMC_BUILD_QU_PRS_BENCHMARKS "Build opt-in QuPRS weighted-CNF CodSpeed C++ benchmarks" OFF)
+if(GPMC_BUILD_QU_PRS_BENCHMARKS)
+  include(FetchContent)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    google_benchmark
+    GIT_REPOSITORY https://github.com/CodSpeedHQ/codspeed-cpp.git
+    GIT_TAG 76985b6f02c49fe70393c50fcca6e9748f300caa
+    SOURCE_SUBDIR google_benchmark
+  )
+  FetchContent_MakeAvailable(google_benchmark)
+  add_executable(gpmc_quprs_cnf_bench benchmarks/quprs/gpmc_quprs_bench.cc)
+  target_include_directories(gpmc_quprs_cnf_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+  target_link_libraries(gpmc_quprs_cnf_bench PRIVATE
+    gpmc flowcutter gpmc_native_deps benchmark::benchmark)
+endif()
