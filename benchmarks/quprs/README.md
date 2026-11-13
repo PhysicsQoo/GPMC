@@ -99,3 +99,45 @@ timed spans and instrumentation modes, record independent correctness,
 and independently measure fresh-process WallTime/VmHWM including process
 startup. Include nontrivial authentic QuPRS-encoder CNFs and negative
 controls before any claim of performance parity or replacement.
+
+## QOO-227 field discovery: in-process repeated-count instability
+
+**DO NOT USE the C++ Google Benchmark's repeated Counter<Complex>
+result as a valid measurement yet.** [Initial CI native run
+43472794121](https://github.com/PhysicsQoo/GPMC/actions/runs/43472794121)
+returned a nominally green workflow but four of the six Google Bench
+instances emitted `ERROR OCCURRED` from the *measured* iterations.
+Google Benchmark's `SkipWithError` did not set a nonzero process status,
+so the smoke's prior green status was a **false positive**.
+[Follow-up run 43473932368](https://github.com/PhysicsQoo/GPMC/actions/runs/43473932368)
+fixed that error exit and correctly failed; four nonzero counts were
+read as denormal garbage `~6.95e-310` on repeated in-process calls.
+The source-defined SAT-but-zero controls had also passed an overly
+loose numeric zero tolerance. This problem cannot be dismissed as
+FP rounding and must not be called source parity.
+
+The regular CI now **builds** the C++ Google Benchmark adapter but
+does **not** execute this known-invalid repeated in-process path,
+unless `workflow_dispatch` is explicitly invoked with
+`in_process_probe=true`; that diagnostic must fail closed if incorrect.
+No production GPMC code was modified to mask this behavior.
+
+The admitted alternative is the **real GPMC C++ native CLI**, with
+each source-pinned CNF run in an independent subprocess, like
+QuPRS's actual solver adapter. The separate native CLI science smoke
+uses `native_process_parity.py` to check one SAT verdict and a precise
+complex count for all six cases, digest-checking the original input,
+with repeated process-spawn WallTime records. The scoped CodSpeed
+config `codspeed.yml` uses the official `exec` harness: it directly
+instruments each native GPMC executable as a new program in
+Simulation mode. This provides a way to benchmark **C++ GPMC itself**
+without introducing a logically invalid in-process counting wrapper.
+
+**Important comparison boundary:** GPMC's CodSpeed `exec` is a native
+fresh program and includes a different initialization span from
+RaWMoCS's existing in-process Divan. Do not divide these numbers to
+make an apparent head-to-head speedup. The next bridge must add a
+corresponding RaWMoCS CLI `exec` or same-CLI-span WallTime and RSS
+study, and source-backed QuPRS encoder-generated CNFs (QOO-226).
+GPMC repo must be connected to CodSpeed before `GPMC_CODSPEED_ENABLED`
+can be activated; the optional upload job is expected to SKIP until then.
