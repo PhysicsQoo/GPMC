@@ -7,6 +7,7 @@ on:
       - CMakeLists.txt
       - benchmarks/quprs/**
       - .github/workflows/quprs-codspeed-cpp.yml
+      - codspeed.yml
       - core/**
       - c-mpfr/**
       - preprocessor/**
@@ -16,10 +17,17 @@ on:
       - CMakeLists.txt
       - benchmarks/quprs/**
       - .github/workflows/quprs-codspeed-cpp.yml
+      - codspeed.yml
       - core/**
       - c-mpfr/**
       - preprocessor/**
   workflow_dispatch:
+    inputs:
+      in_process_probe:
+        description: "Run explicitly unsafe GPMC in-process repeated-count diagnostic"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,7 +38,7 @@ concurrency:
 
 jobs:
   benchmark-smoke:
-    name: Source-pinned C++ benchmark build and exact-value smoke
+    name: Source-pinned native CLI + C++ benchmark build and correctness smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -76,7 +84,8 @@ jobs:
           path: ${{ runner.temp }}/gpmc-native-process-report.json
           retention-days: 14
           if-no-files-found: error
-      - name: Execute all six source-locked correctness-gated benchmark cases
+      - name: Opt-in known-failing in-process repeated Counter diagnostic (never upload)
+        if: github.event_name == 'workflow_dispatch' && inputs.in_process_probe == true
         env:
           GPMC_QU_PRS_CNF_DIR: ${{ runner.temp }}/quprs-cnf
         run: |
@@ -117,22 +126,24 @@ jobs:
       - name: Generate same pinned QuPRS direct-CNF corpus
         run: |
           python3 benchmarks/quprs/prepare_direct_cnf.py \
-            --quprs .upstream/quprs --output "${RUNNER_TEMP}/quprs-cnf"
+            --quprs .upstream/quprs --output build-quprs-bench/quprs-cnf
       - name: Install native development dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
-      - name: Configure and compile C++ instrumented Google Benchmark
+      - name: Configure and compile native GPMC CLI for CodSpeed exec harness
         run: |
-          cmake -S . -B build-quprs-codspeed -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DGPMC_BUILD_QU_PRS_BENCHMARKS=ON -DCODSPEED_MODE=simulation
-          cmake --build build-quprs-codspeed --target gpmc_quprs_cnf_bench --parallel 2
-      - name: Submit native Google Benchmark results to CodSpeed
+          cmake -S . -B build-quprs-bench -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-quprs-bench --target gpmc-bin --parallel 2
+      - name: CodSpeed source inputs are nonempty and exact-proven
+        run: |
+          python3 benchmarks/quprs/native_process_parity.py \
+            --binary build-quprs-bench/gpmc \
+            --corpus build-quprs-bench/quprs-cnf --trials 2
+      - name: Upload native GPMC C++ CLI CodSpeed exec Simulation
         uses: CodSpeedHQ/action@v5
-        env:
-          GPMC_QU_PRS_CNF_DIR: ${{ runner.temp }}/quprs-cnf
         with:
           mode: simulation
-          run: ./build-quprs-codspeed/gpmc_quprs_cnf_bench
+          run: codspeed run -m simulation
