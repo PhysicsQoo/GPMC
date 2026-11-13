@@ -1,0 +1,124 @@
+name: GPMC QuPRS C++ CodSpeed research
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - CMakeLists.txt
+      - benchmarks/quprs/**
+      - .github/workflows/quprs-codspeed-cpp.yml
+      - core/**
+      - c-mpfr/**
+      - preprocessor/**
+  push:
+    branches: [master]
+    paths:
+      - CMakeLists.txt
+      - benchmarks/quprs/**
+      - .github/workflows/quprs-codspeed-cpp.yml
+      - core/**
+      - c-mpfr/**
+      - preprocessor/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpmc-quprs-codspeed-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-smoke:
+    name: Source-pinned C++ benchmark build and exact-value smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Check out fixed original QuPRS source
+        uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - name: Generate original test-defined GPMC CNFs
+        run: |
+          python3 benchmarks/quprs/prepare_direct_cnf.py \
+            --quprs .upstream/quprs --output "${RUNNER_TEMP}/quprs-cnf"
+          python3 -m py_compile benchmarks/quprs/prepare_direct_cnf.py
+      - name: Install native development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Configure native Google Benchmark smoke (not CodSpeed upload)
+        run: |
+          cmake -S . -B build-quprs-bench -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DGPMC_BUILD_QU_PRS_BENCHMARKS=ON -DCODSPEED_MODE=off
+      - name: Compile GPMC CLI and in-process benchmark
+        run: cmake --build build-quprs-bench --target gpmc-bin gpmc_quprs_cnf_bench --parallel 2
+      - name: Execute all six source-locked correctness-gated benchmark cases
+        env:
+          GPMC_QU_PRS_CNF_DIR: ${{ runner.temp }}/quprs-cnf
+        run: |
+          ./build-quprs-bench/gpmc_quprs_cnf_bench \
+            --benchmark_filter=BM_QuPRSDirectCnfFullPipeline \
+            --benchmark_min_time=0.03s --benchmark_repetitions=1
+      - name: Archive input bytes and manifest (research provenance, not a timing report)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quprs-test-defined-printed-gpmc-cnf
+          path: ${{ runner.temp }}/quprs-cnf/
+          retention-days: 14
+          if-no-files-found: error
+
+  codspeed-simulation:
+    name: Opt-in native C++ CodSpeed Simulation (requires GPMC app connection)
+    needs: benchmark-smoke
+    if: >-
+      vars.GPMC_CODSPEED_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PhysicsQoo/QuPRS
+          ref: 0b28736651b3740ed3b201edd2efdef3da541e0d
+          path: .upstream/quprs
+          persist-credentials: false
+      - name: Generate same pinned QuPRS direct-CNF corpus
+        run: |
+          python3 benchmarks/quprs/prepare_direct_cnf.py \
+            --quprs .upstream/quprs --output "${RUNNER_TEMP}/quprs-cnf"
+      - name: Install native development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libgmp-dev libmpfr-dev zlib1g-dev
+      - name: Configure and compile C++ instrumented Google Benchmark
+        run: |
+          cmake -S . -B build-quprs-codspeed -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DGPMC_BUILD_QU_PRS_BENCHMARKS=ON -DCODSPEED_MODE=simulation
+          cmake --build build-quprs-codspeed --target gpmc_quprs_cnf_bench --parallel 2
+      - name: Submit native Google Benchmark results to CodSpeed
+        uses: CodSpeedHQ/action@v5
+        env:
+          GPMC_QU_PRS_CNF_DIR: ${{ runner.temp }}/quprs-cnf
+        with:
+          mode: simulation
+          run: ./build-quprs-codspeed/gpmc_quprs_cnf_bench
