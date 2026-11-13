@@ -13,15 +13,15 @@ import statistics
 import subprocess
 import time
 
-NUMBER = r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?"
-COMPLEX = re.compile(rf"^({NUMBER})([+-](?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)i$")
+NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+COMPLEX = re.compile(rf"^({NUMBER})([+-](?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)i$")
 LIMIT = Fraction(1, 10**23)
 
 
 def parse_count(stdout: str, sat: bool) -> tuple[Fraction, Fraction]:
     if not sat:
         return Fraction(0), Fraction(0)
-    line = re.search(r"^c s exact double prec-sci (.+?)\\s*$", stdout, re.MULTILINE)
+    line = re.search(r"^c s exact double prec-sci (.+?)\s*$", stdout, re.MULTILINE)
     if line is None:
         raise ValueError("missing GPMC complex count")
     complex_number = COMPLEX.fullmatch(line.group(1).strip())
@@ -59,7 +59,7 @@ def main() -> None:
                 capture_output=True, text=True, timeout=10, check=True,
             )
             elapsed.append(time.perf_counter_ns() - start)
-            statuses = re.findall(r"^s (SATISFIABLE|UNSATISFIABLE)\\s*$", result.stdout, re.MULTILINE)
+            statuses = re.findall(r"^s (SATISFIABLE|UNSATISFIABLE)\s*$", result.stdout, re.MULTILINE)
             if len(statuses) != 1:
                 raise SystemExit(f"{entry['case']}: expected one SAT status; got {statuses}")
             sat = statuses[0] == "SATISFIABLE"
